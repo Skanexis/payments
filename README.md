@@ -29,7 +29,9 @@
   - защищенный admin API (по `X-API-Key`) для интеграций.
 - Авто-мониторинг сети:
   - TRON USDT (TRC20) через Trongrid;
-  - BSC USDT (BEP20) через BscScan.
+  - BSC USDT (BEP20) через BscScan;
+  - ETH USDT (ERC20) через Etherscan V2;
+  - BTC через Blockstream API.
 - Telegram:
   - отдельный бот для создания инвойсов и проверки статуса;
   - уведомления о подтверждении платежей.
@@ -52,8 +54,9 @@
 ## Защита от ошибок
 
 - Строгая проверка суммы:
-  - до 6 знаков после запятой;
-  - диапазон `PAYMENT_MIN_BASE_AMOUNT .. PAYMENT_MAX_BASE_AMOUNT`.
+  - до 6 знаков для USDT сетей, до 8 знаков для BTC;
+  - диапазон `PAYMENT_MIN_BASE_AMOUNT .. PAYMENT_MAX_BASE_AMOUNT` для USDT;
+  - диапазон `BTC_MIN_BASE_AMOUNT .. BTC_MAX_BASE_AMOUNT` для BTC.
 - Строгая проверка TTL:
   - диапазон `PAYMENT_TTL_MIN_MINUTES .. PAYMENT_TTL_MAX_MINUTES`.
 - Защита от дублей `tx_hash`:
@@ -118,8 +121,9 @@ cp .env.example .env
 - `ADMIN_API_KEY`
 - `ADMIN_USERNAME` / `ADMIN_PASSWORD`
 - `TRON_WALLET_ADDRESS` и/или `BSC_WALLET_ADDRESS`
+- `ETH_WALLET_ADDRESS` и/или `BTC_WALLET_ADDRESS`
 - `BASE_URL`
-- `TRON_REQUIRED_CONFIRMATIONS` и/или `BSC_REQUIRED_CONFIRMATIONS`
+- `TRON_REQUIRED_CONFIRMATIONS` / `BSC_REQUIRED_CONFIRMATIONS` / `ETH_REQUIRED_CONFIRMATIONS` / `BTC_REQUIRED_CONFIRMATIONS`
 
 6. Запустите web:
 
@@ -157,7 +161,7 @@ PYTHONPATH=src python -m app.telegram_bot
 - `/invoice <network> <amount> <title>`
 - `/status <payment_id>`
 
-Сети: `tron_usdt`, `bsc_usdt`.
+Сети: `tron_usdt`, `bsc_usdt`, `eth_usdt`, `btc`.
 
 ## API
 

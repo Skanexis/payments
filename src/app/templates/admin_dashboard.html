@@ -8,7 +8,7 @@
   <section class="page-head">
     <div>
       <h1 class="page-title">Dashboard</h1>
-      <p class="page-subtitle">Контроль инвойсов, статусов оплаты и качества матчинга транзакций.</p>
+      <p class="page-subtitle">Контроль инвойсов, статусов оплаты, нагрузки и качества авто-матчинга.</p>
     </div>
     <div class="actions">
       <a class="btn btn-primary" href="/admin/payments/new">Create Payment</a>
@@ -117,6 +117,113 @@
         <div id="activity-labels" class="line-labels"></div>
       </div>
     </article>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <h2 class="panel-title">Enterprise Ops Metrics</h2>
+        <p class="panel-subtitle">Финансовая и операционная аналитика по платежам и входящим переводам.</p>
+      </div>
+      <span class="load-pill load-{{ enterprise.load_level }}">Load: {{ enterprise.load_level }}</span>
+    </div>
+
+    <div class="kpi-grid">
+      <article class="kpi-card">
+        <div class="kpi-label">Tracked Balance</div>
+        <div class="kpi-value mono">{{ enterprise.paid_volume_total }}</div>
+        <div class="kpi-note">Суммарный подтвержденный входящий объем</div>
+      </article>
+      <article class="kpi-card">
+        <div class="kpi-label">Paid 24H</div>
+        <div class="kpi-value mono">{{ enterprise.paid_volume_24h }}</div>
+        <div class="kpi-note">Подтвержденные оплаты за последние 24 часа</div>
+      </article>
+      <article class="kpi-card">
+        <div class="kpi-label">Pending Exposure</div>
+        <div class="kpi-value mono">{{ enterprise.pending_exposure }}</div>
+        <div class="kpi-note">Сумма активных pending/confirming платежей</div>
+      </article>
+      <article class="kpi-card">
+        <div class="kpi-label">Avg Settlement (min)</div>
+        <div class="kpi-value">{{ enterprise.avg_settlement_minutes if enterprise.avg_settlement_minutes is not none else "-" }}</div>
+        <div class="kpi-note">Среднее время от создания до paid</div>
+      </article>
+      <article class="kpi-card">
+        <div class="kpi-label">Auto-Match Rate 24H</div>
+        <div class="kpi-value">{{ enterprise.match_rate_24h ~ "%" if enterprise.match_rate_24h is not none else "-" }}</div>
+        <div class="kpi-note">Matched: {{ enterprise.transfer_matched_24h }} / {{ enterprise.transfer_total_24h }}</div>
+      </article>
+      <article class="kpi-card">
+        <div class="kpi-label">Transfer Issues 24H</div>
+        <div class="kpi-value">{{ enterprise.transfer_issues_24h }}</div>
+        <div class="kpi-note">amount_mismatch, conflict, before/after expiry, unmatched</div>
+      </article>
+      <article class="kpi-card">
+        <div class="kpi-label">Transfers Last Hour</div>
+        <div class="kpi-value">{{ enterprise.transfers_last_hour }}</div>
+        <div class="kpi-note">Peak TPM: {{ enterprise.peak_tpm }}</div>
+      </article>
+      <article class="kpi-card">
+        <div class="kpi-label">Stale Active Payments</div>
+        <div class="kpi-value">{{ enterprise.stale_active_count }}</div>
+        <div class="kpi-note">Активные инвойсы старше порога мониторинга</div>
+      </article>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <h2 class="panel-title">Network Capacity & Balance</h2>
+        <p class="panel-subtitle">Текущая нагрузка, риски и live balance по каждой сети.</p>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Network</th>
+            <th>Live Balance</th>
+            <th>Active Payments</th>
+            <th>Pending Volume</th>
+            <th>Transfers 1H</th>
+            <th>Issues 24H</th>
+            <th>Load</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in enterprise.network_rows %}
+            <tr>
+              <td data-label="Network">
+                <div>{{ row.title }}</div>
+                <div class="subline">req conf: {{ row.required_confirmations }}</div>
+              </td>
+              <td data-label="Live Balance">
+                {% if row.live_balance %}
+                  <div class="mono">{{ row.live_balance }} {{ row.asset_symbol }}</div>
+                {% else %}
+                  <div class="subline">{{ row.live_balance_error }}</div>
+                {% endif %}
+              </td>
+              <td data-label="Active Payments">{{ row.active_payments }}</td>
+              <td data-label="Pending Volume" class="mono">{{ row.pending_volume }} {{ row.asset_symbol }}</td>
+              <td data-label="Transfers 1H">{{ row.transfers_last_hour }}</td>
+              <td data-label="Issues 24H">{{ row.issues_last_24h }}</td>
+              <td data-label="Load">
+                <div class="progress-rail"><span style="width: {{ row.load_percent }}%"></span></div>
+                <div class="subline">{{ row.load_percent }}%</div>
+              </td>
+            </tr>
+          {% else %}
+            <tr>
+              <td class="empty-cell" colspan="7">Данные по сетям отсутствуют.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </section>
 
   <section class="panel">

@@ -6,6 +6,7 @@ from collections import defaultdict
 from collections.abc import Iterable
 from datetime import timedelta
 from decimal import Decimal
+from typing import Any
 
 import httpx
 from sqlalchemy import and_, or_, select
@@ -14,11 +15,13 @@ from ..config import Settings
 from ..db import SessionLocal
 from ..models import ObservedTransfer, Payment, PaymentStatus
 from ..utils import dumps_json, ensure_utc, format_amount, quantize_amount, utcnow
-from .blockchain_clients import BscUsdtClient, Transfer, TronUsdtClient
+from .blockchain_clients import BscUsdtClient, BtcClient, EthUsdtClient, Transfer, TronUsdtClient
 from .payment_service import PaymentService
 
 
 logger = logging.getLogger(__name__)
+
+MATCHED_TRANSFER_STATUSES = {"matched", "awaiting_confirmations", "already_linked"}
 
 
 class PaymentMonitor:
@@ -28,6 +31,8 @@ class PaymentMonitor:
         self._clients = {
             "tron_usdt": TronUsdtClient(settings),
             "bsc_usdt": BscUsdtClient(settings),
+            "eth_usdt": EthUsdtClient(settings),
+            "btc": BtcClient(settings),
         }
         self._stop_event = asyncio.Event()
         self._task: asyncio.Task | None = None
@@ -111,14 +116,19 @@ class PaymentMonitor:
                     )
                     fetched[network] = transfers
                     logger.info("Fetched %s transfers for %s", len(transfers), network)
-                except Exception:
+                except Exception as exc:
                     logger.exception("Failed to fetch transfers for %s", network)
                     self.service.add_log(
                         db=db,
                         payment_id=None,
                         level="error",
                         message=f"Transfer fetch failed for network {network}",
-                        context={"network": network},
+                        context={
+                            "event_code": "TRANSFER_FETCH_FAILED",
+                            "network": network,
+                            "error_type": exc.__class__.__name__,
+                            "error_text": str(exc),
+                        },
                     )
                     db.commit()
                     continue
@@ -166,7 +176,10 @@ class PaymentMonitor:
                             payment_id=payment.id,
                             level="error",
                             message="Failed to process confirming payment",
-                            context={"tx_hash": payment.tx_hash},
+                            context={
+                                "event_code": "TRANSFER_APPLY_FAILED",
+                                "tx_hash": payment.tx_hash,
+                            },
                         )
                         db.commit()
                         continue
@@ -175,23 +188,51 @@ class PaymentMonitor:
                     used_hashes.add(transfer.tx_hash)
                     if result == "paid":
                         paid_count += 1
-                        self._notify_payment_paid(payment.id, network, transfer.tx_hash, transfer.amount)
-                        self._upsert_observed_transfer(
+                        self._notify_payment_paid(
+                            payment.id,
+                            network,
+                            transfer.tx_hash,
+                            transfer.amount,
+                            payment.asset_symbol,
+                        )
+                        observed, created, changed = self._upsert_observed_transfer(
                             db=db,
                             transfer=transfer,
                             match_status="matched",
                             matched_payment_id=payment.id,
-                            note="finalized",
+                            note="Payment finalized after required confirmations",
                         )
+                        if created or changed:
+                            self._log_transfer_event(
+                                db=db,
+                                payment_id=payment.id,
+                                transfer=transfer,
+                                level="info",
+                                message="Transfer matched and payment finalized",
+                                event_code="TRANSFER_MATCHED",
+                                match_status=observed.match_status,
+                            )
                     elif result == "confirming":
                         confirming_count += 1
-                        self._upsert_observed_transfer(
+                        required = self.service.required_confirmations(payment.network)
+                        observed, created, changed = self._upsert_observed_transfer(
                             db=db,
                             transfer=transfer,
                             match_status="awaiting_confirmations",
                             matched_payment_id=payment.id,
-                            note="waiting confirmations",
+                            note=f"Waiting confirmations: {transfer.confirmations}/{required}",
                         )
+                        if created or changed:
+                            self._log_transfer_event(
+                                db=db,
+                                payment_id=payment.id,
+                                transfer=transfer,
+                                level="info",
+                                message="Transfer matched but awaiting confirmations",
+                                event_code="TRANSFER_AWAITING_CONFIRMATIONS",
+                                match_status=observed.match_status,
+                                extra={"required_confirmations": required},
+                            )
                     db.commit()
 
                 # Step 2: match new transfers to pending payments.
@@ -210,7 +251,10 @@ class PaymentMonitor:
                             payment_id=payment.id,
                             level="error",
                             message="Failed to apply transfer to payment",
-                            context={"tx_hash": match.tx_hash},
+                            context={
+                                "event_code": "TRANSFER_APPLY_FAILED",
+                                "tx_hash": match.tx_hash,
+                            },
                         )
                         db.commit()
                         continue
@@ -219,23 +263,51 @@ class PaymentMonitor:
                     matched_hashes.add(match.tx_hash)
                     if result == "paid":
                         paid_count += 1
-                        self._notify_payment_paid(payment.id, network, match.tx_hash, match.amount)
-                        self._upsert_observed_transfer(
+                        self._notify_payment_paid(
+                            payment.id,
+                            network,
+                            match.tx_hash,
+                            match.amount,
+                            payment.asset_symbol,
+                        )
+                        observed, created, changed = self._upsert_observed_transfer(
                             db=db,
                             transfer=match,
                             match_status="matched",
                             matched_payment_id=payment.id,
-                            note="matched by amount+time window",
+                            note="Matched by amount + time window and finalized",
                         )
+                        if created or changed:
+                            self._log_transfer_event(
+                                db=db,
+                                payment_id=payment.id,
+                                transfer=match,
+                                level="info",
+                                message="Transfer auto-matched to pending payment",
+                                event_code="TRANSFER_MATCHED",
+                                match_status=observed.match_status,
+                            )
                     elif result == "confirming":
                         confirming_count += 1
-                        self._upsert_observed_transfer(
+                        required = self.service.required_confirmations(payment.network)
+                        observed, created, changed = self._upsert_observed_transfer(
                             db=db,
                             transfer=match,
                             match_status="awaiting_confirmations",
                             matched_payment_id=payment.id,
-                            note="matched, waiting confirmations",
+                            note=f"Matched automatically, waiting confirmations: {match.confirmations}/{required}",
                         )
+                        if created or changed:
+                            self._log_transfer_event(
+                                db=db,
+                                payment_id=payment.id,
+                                transfer=match,
+                                level="info",
+                                message="Transfer matched to pending payment and moved to confirming",
+                                event_code="TRANSFER_AWAITING_CONFIRMATIONS",
+                                match_status=observed.match_status,
+                                extra={"required_confirmations": required},
+                            )
                     db.commit()
 
                 # Step 3: classify non-matched transfers for diagnostics.
@@ -244,16 +316,27 @@ class PaymentMonitor:
                         if transfer.tx_hash in matched_hashes:
                             continue
                         if transfer.tx_hash in used_hash_to_payment and transfer.tx_hash not in matched_hashes:
-                            self._upsert_observed_transfer(
+                            linked_payment_id = used_hash_to_payment.get(transfer.tx_hash)
+                            observed, created, changed = self._upsert_observed_transfer(
                                 db=db,
                                 transfer=transfer,
-                                match_status="matched",
-                                matched_payment_id=used_hash_to_payment.get(transfer.tx_hash),
-                                note="tx hash is already linked to an existing payment",
+                                match_status="already_linked",
+                                matched_payment_id=linked_payment_id,
+                                note=f"Tx hash is already linked to payment {linked_payment_id}",
                             )
+                            if created or changed:
+                                self._log_transfer_event(
+                                    db=db,
+                                    payment_id=linked_payment_id,
+                                    transfer=transfer,
+                                    level="warning",
+                                    message="Incoming transfer tx hash is already linked",
+                                    event_code="TRANSFER_ALREADY_LINKED",
+                                    match_status=observed.match_status,
+                                )
                             continue
 
-                        reason = self._classify_unmatched_reason(
+                        reason, details = self._classify_unmatched_reason(
                             transfer=transfer,
                             payments=payments,
                         )
@@ -262,20 +345,18 @@ class PaymentMonitor:
                             transfer=transfer,
                             match_status=reason,
                             matched_payment_id=None,
-                            note="not auto-matched",
+                            note=str(details.get("reason_description", "not auto-matched")),
                         )
                         if created or changed:
-                            self.service.add_log(
+                            self._log_transfer_event(
                                 db=db,
                                 payment_id=None,
+                                transfer=transfer,
                                 level="warning",
                                 message="Incoming transfer was not auto-matched",
-                                context={
-                                    "network": transfer.network,
-                                    "tx_hash": transfer.tx_hash,
-                                    "amount": format_amount(transfer.amount),
-                                    "reason": observed.match_status,
-                                },
+                                event_code="TRANSFER_UNMATCHED",
+                                match_status=observed.match_status,
+                                extra=details,
                             )
                     db.commit()
 
@@ -315,7 +396,8 @@ class PaymentMonitor:
         transfers: list[Transfer],
         used_hashes: set[str],
     ) -> Transfer | None:
-        expected = quantize_amount(payment.pay_amount)
+        precision = self.service.network_precision(payment.network)
+        expected = quantize_amount(payment.pay_amount, precision=precision)
         created_at = ensure_utc(payment.created_at) or utcnow()
         expires_at = ensure_utc(payment.expires_at)
         grace_before = timedelta(minutes=max(0, self.settings.match_grace_before_minutes))
@@ -324,7 +406,7 @@ class PaymentMonitor:
         for transfer in transfers:
             if transfer.tx_hash in used_hashes:
                 continue
-            if quantize_amount(transfer.amount) != expected:
+            if quantize_amount(transfer.amount, precision=precision) != expected:
                 continue
             if transfer.timestamp < created_at - grace_before:
                 continue
@@ -333,15 +415,29 @@ class PaymentMonitor:
             return transfer
         return None
 
-    def _classify_unmatched_reason(self, transfer: Transfer, payments: Iterable[Payment]) -> str:
+    def _classify_unmatched_reason(
+        self,
+        transfer: Transfer,
+        payments: Iterable[Payment],
+    ) -> tuple[str, dict[str, Any]]:
         expected_amount_matches = []
         for payment in payments:
-            if quantize_amount(payment.pay_amount) != quantize_amount(transfer.amount):
+            precision = self.service.network_precision(payment.network)
+            if quantize_amount(payment.pay_amount, precision=precision) != quantize_amount(
+                transfer.amount, precision=precision
+            ):
                 continue
             expected_amount_matches.append(payment)
 
         if not expected_amount_matches:
-            return "amount_mismatch"
+            return (
+                "amount_mismatch",
+                {
+                    "reason": "amount_mismatch",
+                    "reason_description": "No active invoice with exactly the same pay amount in this network",
+                    "candidate_count": 0,
+                },
+            )
 
         grace_before = timedelta(minutes=max(0, self.settings.match_grace_before_minutes))
         grace_after = timedelta(minutes=max(0, self.settings.match_grace_after_minutes))
@@ -357,13 +453,44 @@ class PaymentMonitor:
             if expires_at and transfer.timestamp > expires_at + grace_after:
                 after_count += 1
                 continue
-            return "conflict"
+            return (
+                "conflict",
+                {
+                    "reason": "conflict",
+                    "reason_description": "Transfer amount fits multiple active invoices in valid time window",
+                    "candidate_count": len(expected_amount_matches),
+                },
+            )
 
         if before_count == len(expected_amount_matches):
-            return "before_invoice"
+            return (
+                "before_invoice",
+                {
+                    "reason": "before_invoice",
+                    "reason_description": "Transfer happened before candidate invoices were created",
+                    "candidate_count": len(expected_amount_matches),
+                    "before_count": before_count,
+                },
+            )
         if after_count == len(expected_amount_matches):
-            return "after_expired"
-        return "unmatched"
+            return (
+                "after_expired",
+                {
+                    "reason": "after_expired",
+                    "reason_description": "Transfer happened after candidate invoices expired",
+                    "candidate_count": len(expected_amount_matches),
+                    "after_count": after_count,
+                },
+            )
+
+        return (
+            "unmatched",
+            {
+                "reason": "unmatched",
+                "reason_description": "Transfer could not be linked automatically; review manually",
+                "candidate_count": len(expected_amount_matches),
+            },
+        )
 
     def _upsert_observed_transfer(
         self,
@@ -378,12 +505,13 @@ class PaymentMonitor:
         now = utcnow()
 
         if observed is None:
+            precision = self.service.network_precision(transfer.network)
             observed = ObservedTransfer(
                 network=transfer.network,
                 tx_hash=transfer.tx_hash,
                 from_address=transfer.from_address,
                 to_address=transfer.to_address,
-                amount=quantize_amount(transfer.amount),
+                amount=quantize_amount(transfer.amount, precision=precision),
                 confirmations=max(0, transfer.confirmations),
                 transfer_timestamp=transfer.timestamp,
                 matched_payment_id=matched_payment_id,
@@ -396,10 +524,16 @@ class PaymentMonitor:
             db.add(observed)
             return observed, True, True
 
-        previous_status = observed.match_status
+        previous_tuple = (
+            observed.match_status,
+            observed.confirmations,
+            observed.matched_payment_id,
+            observed.note,
+        )
         observed.from_address = transfer.from_address
         observed.to_address = transfer.to_address
-        observed.amount = quantize_amount(transfer.amount)
+        precision = self.service.network_precision(transfer.network)
+        observed.amount = quantize_amount(transfer.amount, precision=precision)
         observed.confirmations = max(0, transfer.confirmations)
         observed.transfer_timestamp = transfer.timestamp
         observed.last_seen_at = now
@@ -410,9 +544,54 @@ class PaymentMonitor:
             observed.match_status = match_status
         observed.note = note
 
-        return observed, False, previous_status != observed.match_status
+        current_tuple = (
+            observed.match_status,
+            observed.confirmations,
+            observed.matched_payment_id,
+            observed.note,
+        )
+        return observed, False, previous_tuple != current_tuple
 
-    def _notify_payment_paid(self, payment_id: str, network: str, tx_hash: str, amount: Decimal) -> None:
+    def _log_transfer_event(
+        self,
+        db,
+        *,
+        payment_id: str | None,
+        transfer: Transfer,
+        level: str,
+        message: str,
+        event_code: str,
+        match_status: str | None,
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        context: dict[str, Any] = {
+            "event_code": event_code,
+            "network": transfer.network,
+            "tx_hash": transfer.tx_hash,
+            "amount": format_amount(transfer.amount, precision=self.service.network_precision(transfer.network)),
+            "confirmations": transfer.confirmations,
+        }
+        if match_status:
+            context["match_status"] = match_status
+        if extra:
+            context.update(extra)
+
+        self.service.add_log(
+            db=db,
+            payment_id=payment_id,
+            level=level,
+            message=message,
+            context=context,
+        )
+
+    def _notify_payment_paid(
+        self,
+        payment_id: str,
+        network: str,
+        tx_hash: str,
+        amount: Decimal,
+        asset_symbol: str,
+    ) -> None:
         if not self.settings.telegram_notify_enabled:
             return
         if not self.settings.telegram_bot_token.strip():
@@ -425,7 +604,7 @@ class PaymentMonitor:
             "Payment confirmed\n"
             f"ID: {payment_id}\n"
             f"Network: {network}\n"
-            f"Amount: {format_amount(amount)} USDT\n"
+            f"Amount: {format_amount(amount, precision=self.service.network_precision(network))} {asset_symbol}\n"
             f"TX: {tx_hash}"
         )
         timeout = max(3, self.settings.telegram_request_timeout_seconds)

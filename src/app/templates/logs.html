@@ -3,15 +3,30 @@
   <section class="page-head">
     <div>
       <h1 class="page-title">Logs</h1>
-      <p class="page-subtitle">Системный журнал бизнес-событий и диагностики.</p>
+      <p class="page-subtitle">Системный журнал бизнес-событий, ошибок интеграций и причин авто-матчинга.</p>
     </div>
+  </section>
+
+  <section class="kpi-grid kpi-grid-compact">
+    <article class="kpi-card">
+      <div class="kpi-label">Total Events</div>
+      <div class="kpi-value">{{ log_total_count }}</div>
+    </article>
+    <article class="kpi-card">
+      <div class="kpi-label">Warnings</div>
+      <div class="kpi-value">{{ log_warning_count }}</div>
+    </article>
+    <article class="kpi-card">
+      <div class="kpi-label">Errors</div>
+      <div class="kpi-value">{{ log_error_count }}</div>
+    </article>
   </section>
 
   <section class="panel">
     <div class="panel-head">
       <div>
         <h2 class="panel-title">Latest Events</h2>
-        <p class="panel-subtitle">До 300 последних записей.</p>
+        <p class="panel-subtitle">До 300 последних записей с event code и пояснениями.</p>
       </div>
     </div>
 
@@ -21,19 +36,40 @@
           <tr>
             <th>Time</th>
             <th>Level</th>
-            <th>Payment ID</th>
+            <th>Event Code</th>
             <th>Message</th>
-            <th>Context</th>
+            <th>Details</th>
           </tr>
         </thead>
         <tbody>
-          {% for item in logs %}
+          {% for row in log_rows %}
             <tr>
-              <td data-label="Time">{{ item.created_at|dt }}</td>
-              <td data-label="Level">{{ item.level }}</td>
-              <td data-label="Payment ID" class="mono">{{ item.payment_id or "-" }}</td>
-              <td data-label="Message">{{ item.message }}</td>
-              <td data-label="Context" class="mono">{{ item.context_json or "-" }}</td>
+              <td data-label="Time">{{ row.item.created_at|dt }}</td>
+              <td data-label="Level"><span class="log-pill log-{{ row.level_tone }}">{{ row.level_label }}</span></td>
+              <td data-label="Event Code" class="mono">{{ row.event_code }}</td>
+              <td data-label="Message">
+                <div>{{ row.item.message }}</div>
+                {% if row.reason %}
+                  <div class="subline">reason: {{ row.reason }}</div>
+                {% endif %}
+                {% if row.reason_description %}
+                  <div class="subline">{{ row.reason_description }}</div>
+                {% endif %}
+                {% if row.item.payment_id %}
+                  <div class="subline">payment: <a class="mono" href="/admin/payments/{{ row.item.payment_id }}">{{ row.item.payment_id[:8] }}</a></div>
+                {% endif %}
+              </td>
+              <td data-label="Details">
+                {% if row.summary %}
+                  <div class="context-list">
+                    {% for line in row.summary %}
+                      <span class="context-pill mono">{{ line }}</span>
+                    {% endfor %}
+                  </div>
+                {% else %}
+                  <span class="subline">-</span>
+                {% endif %}
+              </td>
             </tr>
           {% else %}
             <tr>

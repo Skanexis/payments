@@ -65,15 +65,17 @@
       <h2 class="panel-title">Actions</h2>
       <p class="panel-subtitle">Ручные операции доступны только для pending/confirming.</p>
 
-      <div class="actions">
+      <div class="actions action-stack">
         {% if payment.status == "pending" %}
-          <form method="post" action="/admin/payments/{{ payment.id }}/cancel">
+          <form method="post" action="/admin/payments/{{ payment.id }}/cancel" class="full-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button class="btn btn-danger" type="submit">Cancel Payment</button>
           </form>
         {% endif %}
 
         {% if payment.status in ["pending", "confirming"] %}
-          <form method="post" action="/admin/payments/{{ payment.id }}/mark-paid" class="inline-form">
+          <form method="post" action="/admin/payments/{{ payment.id }}/mark-paid" class="inline-form full-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="text" name="manual_tx_hash" placeholder="manual tx hash (optional)">
             <button class="btn btn-outline" type="submit">Mark as Paid</button>
           </form>
@@ -94,7 +96,7 @@
     <div class="panel-head">
       <div>
         <h2 class="panel-title">Payment Logs</h2>
-        <p class="panel-subtitle">Хронология событий конкретного платежа.</p>
+        <p class="panel-subtitle">Хронология событий по этому платежу с event code и контекстом.</p>
       </div>
     </div>
 
@@ -104,21 +106,41 @@
           <tr>
             <th>Time</th>
             <th>Level</th>
+            <th>Event</th>
             <th>Message</th>
-            <th>Context</th>
+            <th>Details</th>
           </tr>
         </thead>
         <tbody>
-          {% for item in logs %}
+          {% for row in log_rows %}
             <tr>
-              <td data-label="Time">{{ item.created_at|dt }}</td>
-              <td data-label="Level">{{ item.level }}</td>
-              <td data-label="Message">{{ item.message }}</td>
-              <td data-label="Context" class="mono">{{ item.context_json or "-" }}</td>
+              <td data-label="Time">{{ row.item.created_at|dt }}</td>
+              <td data-label="Level"><span class="log-pill log-{{ row.level_tone }}">{{ row.level_label }}</span></td>
+              <td data-label="Event" class="mono">{{ row.event_code }}</td>
+              <td data-label="Message">
+                <div>{{ row.item.message }}</div>
+                {% if row.reason %}
+                  <div class="subline">reason: {{ row.reason }}</div>
+                {% endif %}
+                {% if row.reason_description %}
+                  <div class="subline">{{ row.reason_description }}</div>
+                {% endif %}
+              </td>
+              <td data-label="Details">
+                {% if row.summary %}
+                  <div class="context-list">
+                    {% for line in row.summary %}
+                      <span class="context-pill mono">{{ line }}</span>
+                    {% endfor %}
+                  </div>
+                {% else %}
+                  <span class="subline">-</span>
+                {% endif %}
+              </td>
             </tr>
           {% else %}
             <tr>
-              <td class="empty-cell" colspan="4">Логи отсутствуют.</td>
+              <td class="empty-cell" colspan="5">Логи отсутствуют.</td>
             </tr>
           {% endfor %}
         </tbody>

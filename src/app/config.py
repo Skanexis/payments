@@ -19,10 +19,13 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite:///./data/crypto_pay.db"
     session_secret: str = "change-me-session-secret"
+    session_max_age_seconds: int = 43200
     admin_api_key: str = "change-me-admin-api-key"
 
     admin_username: str = "admin"
     admin_password: str = "change-me-admin-password"
+    admin_login_max_attempts: int = 5
+    admin_login_window_minutes: int = 15
 
     payment_ttl_minutes: int = 30
     payment_ttl_min_minutes: int = 3
@@ -31,6 +34,9 @@ class Settings(BaseSettings):
     payment_max_base_amount: str = "100000"
     amount_step: str = "0.001"
     amount_max_offset_steps: int = 200
+    btc_min_base_amount: str = "0.0001"
+    btc_max_base_amount: str = "100"
+    btc_amount_step: str = "0.000001"
     match_grace_before_minutes: int = 10
     match_grace_after_minutes: int = 10
 
@@ -50,6 +56,16 @@ class Settings(BaseSettings):
     bscscan_api_base: str = "https://api.bscscan.com/api"
     bscscan_api_key: str = ""
     bsc_required_confirmations: int = 3
+
+    eth_wallet_address: str = ""
+    eth_usdt_contract: str = "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+    etherscan_api_base: str = "https://api.etherscan.io/v2/api"
+    etherscan_api_key: str = ""
+    eth_required_confirmations: int = 12
+
+    btc_wallet_address: str = ""
+    btc_api_base: str = "https://blockstream.info/api"
+    btc_required_confirmations: int = 1
 
     telegram_bot_token: str = ""
     telegram_admin_ids: str = ""

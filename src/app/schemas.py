@@ -10,7 +10,7 @@ class PaymentCreateRequest(BaseModel):
     external_id: str | None = Field(default=None, max_length=128)
     title: str = Field(min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=5000)
-    network: Literal["tron_usdt", "bsc_usdt"]
+    network: Literal["tron_usdt", "bsc_usdt", "eth_usdt", "btc"]
     base_amount: Decimal = Field(gt=Decimal("0"))
     ttl_minutes: int | None = Field(default=None, ge=1, le=1440)
     metadata: dict[str, Any] = Field(default_factory=dict)

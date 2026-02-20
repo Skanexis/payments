@@ -1,4 +1,5 @@
 from pathlib import Path
+from decimal import Decimal, InvalidOperation
 
 from fastapi.templating import Jinja2Templates
 
@@ -16,6 +17,16 @@ def _format_datetime(value):
     return value_utc.strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
-templates.env.filters["dt"] = _format_datetime
-templates.env.filters["amt"] = format_amount
+def _format_amount_auto(value):
+    try:
+        dec = Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError):
+        return format_amount(value)
+    text = format_amount(dec, precision=8)
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text
 
+
+templates.env.filters["dt"] = _format_datetime
+templates.env.filters["amt"] = _format_amount_auto

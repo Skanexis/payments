@@ -13,7 +13,8 @@
         <div class="alert alert-error">{{ error }}</div>
       {% endif %}
 
-      <form method="post" action="/admin/payments/new">
+      <form method="post" action="/admin/payments/new" class="create-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <label class="field">
           <span class="field-label">Title</span>
           <input type="text" name="title" required value="{{ values.title or '' }}" placeholder="Например: Доступ к приватному каналу">
@@ -37,7 +38,7 @@
 
         <div class="form-grid">
           <label class="field">
-            <span class="field-label">Base Amount (USDT)</span>
+            <span class="field-label">Base Amount</span>
             <input type="text" name="base_amount" required value="{{ values.base_amount or '' }}" placeholder="50.00">
           </label>
           <label class="field">
@@ -51,7 +52,7 @@
           <textarea name="description" placeholder="Описание для клиента">{{ values.description or '' }}</textarea>
         </label>
 
-        <div class="form-actions">
+        <div class="form-actions sticky-actions">
           <button id="create-btn" class="btn btn-primary" type="submit">Create Payment</button>
           <a class="btn btn-outline" href="/admin">Cancel</a>
         </div>

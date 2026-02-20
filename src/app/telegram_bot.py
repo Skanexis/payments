@@ -45,7 +45,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/invoice <network> <amount> <title> - create payment\n"
         "/status <payment_id> - get payment status\n"
         "/help - show commands\n"
-        "Networks: tron_usdt, bsc_usdt"
+        "Networks: tron_usdt, bsc_usdt, eth_usdt, btc"
     )
 
 
@@ -152,4 +152,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -22,9 +22,11 @@
 
 ## 2. Что важно знать перед началом
 
-1. В проекте сейчас принимается **USDT** в сетях:
-   - `tron_usdt` (TRC20),
-   - `bsc_usdt` (BEP20).
+1. В проекте сейчас принимается:
+   - `tron_usdt` (USDT TRC20),
+   - `bsc_usdt` (USDT BEP20),
+   - `eth_usdt` (USDT ERC20),
+   - `btc` (Bitcoin).
 2. Сопоставление платежа идет по:
    - сети,
    - точной сумме,
@@ -68,8 +70,8 @@ sudo systemctl restart crypto-pay-web
 2. Заполните поля:
    - `Название` — что оплачивает клиент;
    - `Внешний ID` (опционально) — ваш номер заказа (`order-1001`);
-   - `Сеть` — `tron_usdt` или `bsc_usdt`;
-   - `Сумма` — базовая сумма в USDT;
+   - `Сеть` — `tron_usdt`, `bsc_usdt`, `eth_usdt` или `btc`;
+   - `Сумма` — базовая сумма в выбранном активе (USDT или BTC);
    - `TTL` — время жизни инвойса в минутах;
    - `Описание` — текст для клиента.
 3. Нажмите `Создать платеж`.
@@ -171,6 +173,11 @@ PYTHONPATH=src python -m app.telegram_bot
 /invoice tron_usdt 25.50 Premium access 30 days
 ```
 
+Для BTC:
+```text
+/invoice btc 0.0025 Invoice #1001
+```
+
 3. `/status <payment_id>`
    - показывает статус платежа.
 
@@ -210,7 +217,9 @@ PYTHONPATH=src python -m app.telegram_bot
 3. В своем кошельке отправить **ровно указанную сумму**.
 4. Отправить в **той же сети**, что указана на странице:
    - `TRC20` только для `tron_usdt`;
-   - `BEP20` только для `bsc_usdt`.
+   - `BEP20` только для `bsc_usdt`;
+   - `ERC20` только для `eth_usdt`;
+   - `Bitcoin` только для `btc`.
 5. Подождать обновления статуса:
    - сначала `pending`/`confirming`,
    - потом `paid`.
@@ -265,4 +274,3 @@ PYTHONPATH=src python -m app.telegram_bot
 4. Страница `/pay/<id>` открывается.
 5. Тестовый перевод меняет статус до `paid`.
 6. Бот отвечает на `/start`.
-

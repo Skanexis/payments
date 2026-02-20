@@ -34,6 +34,18 @@ NETWORKS: dict[str, NetworkInfo] = {
         asset_symbol="USDT",
         precision=6,
     ),
+    "eth_usdt": NetworkInfo(
+        code="eth_usdt",
+        title="USDT (ERC20)",
+        asset_symbol="USDT",
+        precision=6,
+    ),
+    "btc": NetworkInfo(
+        code="btc",
+        title="Bitcoin (BTC)",
+        asset_symbol="BTC",
+        precision=8,
+    ),
 }
 
 
@@ -49,6 +61,10 @@ class PaymentService:
             return self.settings.tron_wallet_address.strip()
         if network == "bsc_usdt":
             return self.settings.bsc_wallet_address.strip()
+        if network == "eth_usdt":
+            return self.settings.eth_wallet_address.strip()
+        if network == "btc":
+            return self.settings.btc_wallet_address.strip()
         return ""
 
     def network_options(self) -> list[dict[str, Any]]:
@@ -72,7 +88,23 @@ class PaymentService:
             return max(1, self.settings.tron_required_confirmations)
         if network == "bsc_usdt":
             return max(1, self.settings.bsc_required_confirmations)
+        if network == "eth_usdt":
+            return max(1, self.settings.eth_required_confirmations)
+        if network == "btc":
+            return max(1, self.settings.btc_required_confirmations)
         return 1
+
+    def network_precision(self, network: str) -> int:
+        info = self.get_networks().get(network)
+        if info is None:
+            return 6
+        return info.precision
+
+    def network_asset_symbol(self, network: str) -> str:
+        info = self.get_networks().get(network)
+        if info is None:
+            return ""
+        return info.asset_symbol
 
     def create_payment(
         self,
@@ -106,6 +138,7 @@ class PaymentService:
             )
 
         amount_base = self._validate_and_normalize_amount(
+            network=network,
             base_amount=base_amount,
             precision=network_info.precision,
         )
@@ -192,7 +225,7 @@ class PaymentService:
         base_amount: Decimal,
         precision: int,
     ) -> tuple[Decimal, int]:
-        step = quantize_amount(self.settings.amount_step, precision=precision)
+        step = self._amount_step_for_network(network=network, precision=precision)
         if step <= 0:
             raise ValueError("amount_step must be > 0")
 
@@ -266,7 +299,8 @@ class PaymentService:
         payment.updated_at = now
         payment.tx_hash = tx_hash
         payment.payer_address = payer_address or payment.payer_address
-        payment.actual_amount = quantize_amount(amount)
+        network_precision = self.network_precision(payment.network)
+        payment.actual_amount = quantize_amount(amount, precision=network_precision)
         payment.confirmations = max(0, confirmations)
 
         should_log = (
@@ -283,7 +317,7 @@ class PaymentService:
                 context={
                     "tx_hash": tx_hash,
                     "payer_address": payer_address,
-                    "amount": format_amount(amount),
+                    "amount": format_amount(amount, precision=network_precision),
                     "confirmations": confirmations,
                     "required_confirmations": self.required_confirmations(payment.network),
                 },
@@ -321,7 +355,8 @@ class PaymentService:
         payment.paid_at = now
         payment.tx_hash = tx_hash
         payment.payer_address = payer_address or None
-        payment.actual_amount = quantize_amount(amount)
+        network_precision = self.network_precision(payment.network)
+        payment.actual_amount = quantize_amount(amount, precision=network_precision)
         payment.confirmations = max(0, confirmations)
 
         self._upsert_seen_transaction(
@@ -339,7 +374,7 @@ class PaymentService:
             context={
                 "tx_hash": tx_hash,
                 "payer_address": payer_address,
-                "amount": format_amount(amount),
+                "amount": format_amount(amount, precision=network_precision),
                 "confirmations": confirmations,
             },
         )
@@ -367,18 +402,19 @@ class PaymentService:
         raw_data: dict[str, Any] | None,
     ) -> None:
         existing_seen = db.scalar(select(SeenTransaction).where(SeenTransaction.tx_hash == tx_hash))
+        precision = self.network_precision(network)
         if existing_seen is None:
             db.add(
                 SeenTransaction(
                     network=network,
                     tx_hash=tx_hash,
-                    amount=quantize_amount(amount),
+                    amount=quantize_amount(amount, precision=precision),
                     detected_at=utcnow(),
                     raw_json=dumps_json(raw_data),
                 )
             )
             return
-        existing_seen.amount = quantize_amount(amount)
+        existing_seen.amount = quantize_amount(amount, precision=precision)
         existing_seen.raw_json = dumps_json(raw_data)
 
     def _is_idempotent_duplicate(
@@ -397,15 +433,14 @@ class PaymentService:
             == quantize_amount(base_amount, precision=precision)
         )
 
-    def _validate_and_normalize_amount(self, *, base_amount: Decimal, precision: int) -> Decimal:
+    def _validate_and_normalize_amount(self, *, network: str, base_amount: Decimal, precision: int) -> Decimal:
         try:
             raw = to_decimal(base_amount)
         except (ValueError, InvalidOperation) as exc:
             raise ValueError("Invalid amount") from exc
 
         try:
-            min_allowed = to_decimal(self.settings.payment_min_base_amount)
-            max_allowed = to_decimal(self.settings.payment_max_base_amount)
+            min_allowed, max_allowed = self._amount_bounds(network=network, precision=precision)
         except (ValueError, InvalidOperation) as exc:
             raise ValueError("Invalid payment amount range configuration") from exc
         normalized = quantize_amount(raw, precision=precision)
@@ -417,6 +452,21 @@ class PaymentService:
         if normalized > max_allowed:
             raise ValueError(f"Amount must be <= {format_amount(max_allowed, precision=precision)}")
         return normalized
+
+    def _amount_bounds(self, *, network: str, precision: int) -> tuple[Decimal, Decimal]:
+        if network == "btc":
+            min_allowed = to_decimal(self.settings.btc_min_base_amount)
+            max_allowed = to_decimal(self.settings.btc_max_base_amount)
+        else:
+            min_allowed = to_decimal(self.settings.payment_min_base_amount)
+            max_allowed = to_decimal(self.settings.payment_max_base_amount)
+        return quantize_amount(min_allowed, precision=precision), quantize_amount(max_allowed, precision=precision)
+
+    def _amount_step_for_network(self, *, network: str, precision: int) -> Decimal:
+        raw_step = self.settings.amount_step
+        if network == "btc":
+            raw_step = self.settings.btc_amount_step
+        return quantize_amount(raw_step, precision=precision)
 
     def add_log(
         self,
@@ -442,6 +492,7 @@ class PaymentService:
         updated_at = ensure_utc(payment.updated_at)
         expires_at = ensure_utc(payment.expires_at)
         paid_at = ensure_utc(payment.paid_at)
+        precision = self.network_precision(payment.network)
 
         return {
             "id": payment.id,
@@ -451,9 +502,9 @@ class PaymentService:
             "network": payment.network,
             "asset_symbol": payment.asset_symbol,
             "destination_address": payment.destination_address,
-            "base_amount": format_amount(payment.base_amount),
-            "pay_amount": format_amount(payment.pay_amount),
-            "actual_amount": format_amount(payment.actual_amount) if payment.actual_amount is not None else None,
+            "base_amount": format_amount(payment.base_amount, precision=precision),
+            "pay_amount": format_amount(payment.pay_amount, precision=precision),
+            "actual_amount": format_amount(payment.actual_amount, precision=precision) if payment.actual_amount is not None else None,
             "status": payment.status,
             "tx_hash": payment.tx_hash,
             "payer_address": payment.payer_address,

@@ -37,6 +37,7 @@ def pay_page(payment_id: str, request: Request, db: Session = Depends(get_db)):
     payment = db.get(Payment, payment_id)
     if payment is None:
         raise HTTPException(status_code=404, detail="Payment not found")
+    precision = payment_service.network_precision(payment.network)
 
     return templates.TemplateResponse(
         "public_payment.html",
@@ -44,8 +45,8 @@ def pay_page(payment_id: str, request: Request, db: Session = Depends(get_db)):
             "request": request,
             "payment": payment,
             "payment_data": payment_service.serialize_payment(payment),
-            "pay_amount": format_amount(payment.pay_amount),
-            "base_amount": format_amount(payment.base_amount),
+            "pay_amount": format_amount(payment.pay_amount, precision=precision),
+            "base_amount": format_amount(payment.base_amount, precision=precision),
             "expires_at": ensure_utc(payment.expires_at),
         },
     )
@@ -64,12 +65,13 @@ def get_compact_status(payment_id: str, db: Session = Depends(get_db)):
     payment = db.get(Payment, payment_id)
     if payment is None:
         raise HTTPException(status_code=404, detail="Payment not found")
+    precision = payment_service.network_precision(payment.network)
 
     return PaymentStatusResponse(
         payment_id=payment.id,
         status=payment.status,
         tx_hash=payment.tx_hash,
-        amount=format_amount(payment.pay_amount),
+        amount=format_amount(payment.pay_amount, precision=precision),
         network=payment.network,
         confirmations=payment.confirmations,
         required_confirmations=payment_service.required_confirmations(payment.network),

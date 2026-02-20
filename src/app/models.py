@@ -23,6 +23,8 @@ class PaymentStatus(str, Enum):
 class NetworkCode(str, Enum):
     tron_usdt = "tron_usdt"
     bsc_usdt = "bsc_usdt"
+    eth_usdt = "eth_usdt"
+    btc = "btc"
 
 
 class AdminUser(Base):
