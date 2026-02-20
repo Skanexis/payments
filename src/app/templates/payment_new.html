@@ -1,8 +1,12 @@
 {% extends "base.html" %}
 {% block content %}
-  <section class="panel" style="max-width: 720px;">
-    <h1>Создать платеж</h1>
-    <p class="hint">Для авто-сверки используется уникальная сумма (`base_amount + offset`). Клиенту нужно перевести ровно указанную сумму.</p>
+  <section class="panel panel-narrow">
+    <div class="section-head">
+      <div>
+        <h1>Создать платеж</h1>
+        <p class="hint">Для авто-сверки используется уникальная сумма (`base_amount + offset`). Клиенту нужно перевести ровно указанную сумму.</p>
+      </div>
+    </div>
     {% if error %}
       <p class="error">{{ error }}</p>
     {% endif %}
@@ -25,19 +29,21 @@
           {% endfor %}
         </select>
       </label>
-      <div class="hint">
+      <div class="hint-list">
         {% for option in network_options %}
           <div>{{ option.title }}: {{ option.wallet or "wallet не указан" }}, подтверждений: {{ option.required_confirmations }}</div>
         {% endfor %}
       </div>
-      <label>
-        Сумма (USDT)
-        <input type="text" name="base_amount" required value="{{ values.base_amount or '' }}" placeholder="50.00">
-      </label>
-      <label>
-        Время жизни (минуты)
-        <input type="number" name="ttl_minutes" min="1" max="1440" value="{{ values.ttl_minutes or default_ttl }}">
-      </label>
+      <div class="form-row">
+        <label>
+          Сумма (USDT)
+          <input type="text" name="base_amount" required value="{{ values.base_amount or '' }}" placeholder="50.00">
+        </label>
+        <label>
+          Время жизни (минуты)
+          <input type="number" name="ttl_minutes" min="1" max="1440" value="{{ values.ttl_minutes or default_ttl }}">
+        </label>
+      </div>
       <label>
         Описание
         <textarea name="description" placeholder="Описание для клиента">{{ values.description or '' }}</textarea>

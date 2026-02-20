@@ -6,13 +6,16 @@
   <title>{{ title or "Crypto Pay" }}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Manrope:wght@400;500;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
   <div class="shell">
     <div class="topbar">
-      <div class="brand">Crypto Payment Console</div>
+      <div class="brand">
+        <div class="brand-title">Crypto Payment Console</div>
+        <div class="brand-subtitle">Enterprise Operations</div>
+      </div>
       <div class="menu">
         {% if admin_user %}
           <a href="/admin">Платежи</a>

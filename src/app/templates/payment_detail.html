@@ -1,7 +1,12 @@
 {% extends "base.html" %}
 {% block content %}
   <section class="panel">
-    <h1>Платеж {{ payment.id }}</h1>
+    <div class="section-head">
+      <div>
+        <h1>Платеж {{ payment.id }}</h1>
+        <p class="hint">Карточка платежа, статусы подтверждения и управленческие действия.</p>
+      </div>
+    </div>
     {% if error %}
       <p class="error">{{ error }}</p>
     {% endif %}
@@ -16,17 +21,17 @@
       <div class="key">Сеть</div>
       <div class="val">{{ payment.network }}</div>
       <div class="key">Сумма к оплате</div>
-      <div class="val">{{ amount_text }} {{ payment.asset_symbol }}</div>
+      <div class="val mono">{{ amount_text }} {{ payment.asset_symbol }}</div>
       <div class="key">Адрес</div>
-      <div class="val">{{ payment.destination_address }}</div>
+      <div class="val mono text-break">{{ payment.destination_address }}</div>
       <div class="key">Срок до</div>
       <div class="val">{{ expires_at|dt }}</div>
       <div class="key">Tx hash</div>
-      <div class="val">{{ payment.tx_hash or "-" }}</div>
+      <div class="val mono text-break">{{ payment.tx_hash or "-" }}</div>
       <div class="key">Подтверждения</div>
       <div class="val">{{ payment.confirmations }} / {{ required_confirmations }}</div>
       <div class="key">Ссылка оплаты</div>
-      <div class="val"><a href="{{ pay_url }}" target="_blank">{{ pay_url }}</a></div>
+      <div class="val"><a class="mono text-break" href="{{ pay_url }}" target="_blank">{{ pay_url }}</a></div>
     </div>
     {% if payment.description %}
       <p><strong>Описание:</strong> {{ payment.description }}</p>
@@ -38,7 +43,7 @@
         </form>
       {% endif %}
       {% if payment.status in ["pending", "confirming"] %}
-        <form method="post" action="/admin/payments/{{ payment.id }}/mark-paid" style="display:flex; gap:.45rem; align-items:center;">
+        <form method="post" action="/admin/payments/{{ payment.id }}/mark-paid" class="inline-form">
           <input type="text" name="manual_tx_hash" placeholder="manual tx hash (опционально)">
           <button class="btn btn-outline" type="submit">Отметить как paid</button>
         </form>
@@ -47,30 +52,34 @@
   </section>
 
   <section class="panel">
-    <h2>Логи платежа</h2>
-    <table>
-      <thead>
-      <tr>
-        <th>Время</th>
-        <th>Уровень</th>
-        <th>Сообщение</th>
-        <th>Контекст</th>
-      </tr>
-      </thead>
-      <tbody>
-      {% for item in logs %}
+    <div class="section-head">
+      <h2>Логи платежа</h2>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
         <tr>
-          <td>{{ item.created_at|dt }}</td>
-          <td>{{ item.level }}</td>
-          <td>{{ item.message }}</td>
-          <td class="mono">{{ item.context_json or "-" }}</td>
+          <th>Время</th>
+          <th>Уровень</th>
+          <th>Сообщение</th>
+          <th>Контекст</th>
         </tr>
-      {% else %}
-        <tr>
-          <td colspan="4">Логи отсутствуют.</td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+        {% for item in logs %}
+          <tr>
+            <td data-label="Время">{{ item.created_at|dt }}</td>
+            <td data-label="Уровень">{{ item.level }}</td>
+            <td data-label="Сообщение">{{ item.message }}</td>
+            <td data-label="Контекст" class="mono">{{ item.context_json or "-" }}</td>
+          </tr>
+        {% else %}
+          <tr>
+            <td class="empty-cell" colspan="4">Логи отсутствуют.</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </section>
 {% endblock %}

@@ -1,10 +1,13 @@
 {% extends "base.html" %}
 {% block content %}
   <section class="panel">
-    <h1>{{ app_name }}</h1>
-    <p>Сервис выставления крипто-инвойсов и автоматической проверки входящих переводов на ваш TrustWallet адрес.</p>
-    <p><a href="/admin/login">Перейти в админку</a></p>
-    <p class="hint">Публичная ссылка оплаты для клиента выглядит так: <span class="mono">/pay/&lt;payment_id&gt;</span>.</p>
+    <div class="section-head">
+      <div>
+        <h1>{{ app_name }}</h1>
+        <p class="hint">Сервис выставления крипто-инвойсов и автоматической проверки входящих переводов на ваш TrustWallet адрес.</p>
+      </div>
+      <a class="btn btn-primary" href="/admin/login">Перейти в админку</a>
+    </div>
+    <p class="hint">Публичная ссылка оплаты для клиента: <span class="mono">/pay/&lt;payment_id&gt;</span></p>
   </section>
 {% endblock %}
-

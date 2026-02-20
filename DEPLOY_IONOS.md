@@ -441,7 +441,7 @@ sudo cp -a /etc/nginx /etc/nginx.backup.$(date +%F-%H%M)
 ### 11.2 Создайте отдельный файл для нового поддомена
 
 ```bash
-sudo nano /etc/nginx/sites-available/pay.example.com.conf
+sudo nano /etc/nginx/sites-available/payments.yosupport.it.conf
 ```
 
 Вставьте:
@@ -450,10 +450,10 @@ sudo nano /etc/nginx/sites-available/pay.example.com.conf
 server {
     listen 80;
     listen [::]:80;
-    server_name pay.example.com;
+    server_name payments.yosupport.it;
 
-    access_log /var/log/nginx/pay.example.com.access.log;
-    error_log  /var/log/nginx/pay.example.com.error.log;
+    access_log /var/log/nginx/payments.yosupport.it.access.log;
+    error_log  /var/log/nginx/payments.yosupport.it.error.log;
 
     location / {
         proxy_pass http://127.0.0.1:8081;
@@ -470,7 +470,7 @@ server {
 Включите сайт:
 
 ```bash
-sudo ln -s /etc/nginx/sites-available/pay.example.com.conf /etc/nginx/sites-enabled/pay.example.com.conf
+sudo ln -s /etc/nginx/sites-available/payments.yosupport.it.conf /etc/nginx/sites-enabled/payments.yosupport.it..conf
 ```
 
 Проверьте:
@@ -498,7 +498,7 @@ sudo apt install -y certbot python3-certbot-nginx
 Выпустите сертификат только для нового поддомена:
 
 ```bash
-sudo certbot --nginx -d pay.example.com
+sudo certbot --nginx -d payments.
 ```
 
 Проверьте автообновление:
@@ -522,7 +522,7 @@ curl -I https://pay.example.com
 
 ```bash
 sudo tail -n 100 /var/log/nginx/error.log
-sudo tail -n 100 /var/log/nginx/pay.example.com.error.log
+sudo tail -n 100 /var/log/nginx/payments.yosupport.it.error.log
 ```
 
 Если старый сервис отвечает как раньше, всё корректно.
