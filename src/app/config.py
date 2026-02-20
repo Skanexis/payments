@@ -34,9 +34,10 @@ class Settings(BaseSettings):
     payment_max_base_amount: str = "100000"
     amount_step: str = "0.001"
     amount_max_offset_steps: int = 200
-    btc_min_base_amount: str = "0.0001"
-    btc_max_base_amount: str = "100"
+    btc_min_base_amount: str = "1"
+    btc_max_base_amount: str = "100000"
     btc_amount_step: str = "0.000001"
+    btc_input_precision: int = 2
     match_grace_before_minutes: int = 10
     match_grace_after_minutes: int = 10
 
@@ -66,6 +67,11 @@ class Settings(BaseSettings):
     btc_wallet_address: str = ""
     btc_api_base: str = "https://blockstream.info/api"
     btc_required_confirmations: int = 1
+    btc_usd_rate_api_base: str = "https://api.coingecko.com/api/v3/simple/price"
+    btc_usd_rate_binance_api_base: str = "https://api.binance.com/api/v3/ticker/price"
+    btc_usd_rate_coinbase_api_base: str = "https://api.coinbase.com/v2/prices/BTC-USD/spot"
+    btc_usd_rate_provider_order: str = "coingecko,binance,coinbase"
+    btc_usd_rate_timeout_seconds: int = 8
 
     telegram_bot_token: str = ""
     telegram_admin_ids: str = ""

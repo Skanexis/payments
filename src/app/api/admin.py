@@ -709,6 +709,7 @@ def payment_detail(payment_id: str, request: Request, db: Session = Depends(get_
         select(PaymentLog).where(PaymentLog.payment_id == payment_id).order_by(PaymentLog.created_at.desc()).limit(200)
     ).all()
     payment_data = payment_service.serialize_payment(payment)
+    pricing = payment_data.get("metadata", {}).get("pricing", {}) if isinstance(payment_data.get("metadata"), dict) else {}
     error = request.query_params.get("error")
     info = request.query_params.get("info")
 
@@ -723,7 +724,9 @@ def payment_detail(payment_id: str, request: Request, db: Session = Depends(get_
             log_rows=_build_log_rows(logs),
             pay_url=f"{settings.base_url.rstrip('/')}/pay/{payment.id}",
             amount_text=format_amount(payment.pay_amount, precision=payment_service.network_precision(payment.network)),
+            base_amount_text=format_amount(payment.base_amount, precision=payment_service.network_input_precision(payment.network)),
             expires_at=ensure_utc(payment.expires_at),
+            pricing=pricing,
             error=error,
             info=info,
             required_confirmations=payment_service.required_confirmations(payment.network),

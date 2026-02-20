@@ -43,6 +43,19 @@
           <span class="label">Network</span>
           <span class="value">{{ payment.network }}</span>
         </div>
+        {% if pricing and pricing.quote_currency %}
+          <div class="invoice-meta-row">
+            <span class="label">Quoted Amount</span>
+            <span class="value mono">{{ base_amount }} {{ pricing.quote_currency }}</span>
+          </div>
+          <div class="invoice-meta-row">
+            <span class="label">Locked Rate</span>
+            <span class="value mono">
+              1 BTC = {{ pricing.btc_usd_rate }} {{ pricing.quote_currency }}
+              {% if pricing.rate_source %} ({{ pricing.rate_source }}){% endif %}
+            </span>
+          </div>
+        {% endif %}
         <div class="invoice-meta-row">
           <span class="label">Destination Address</span>
           <span id="wallet-address" class="value mono text-break">{{ payment.destination_address }}</span>

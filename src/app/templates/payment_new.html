@@ -27,9 +27,9 @@
 
         <label class="field">
           <span class="field-label">Network</span>
-          <select name="network" required>
+          <select id="network-select" name="network" required>
             {% for option in network_options %}
-              <option value="{{ option.code }}" {% if values.network == option.code %}selected{% endif %} {% if not option.configured %}disabled{% endif %}>
+              <option value="{{ option.code }}" data-input-currency="{{ option.input_currency }}" {% if values.network == option.code %}selected{% endif %} {% if not option.configured %}disabled{% endif %}>
                 {{ option.title }} {% if not option.configured %}(wallet не настроен){% endif %}
               </option>
             {% endfor %}
@@ -38,7 +38,7 @@
 
         <div class="form-grid">
           <label class="field">
-            <span class="field-label">Base Amount</span>
+            <span id="amount-label" class="field-label">Base Amount</span>
             <input type="text" name="base_amount" required value="{{ values.base_amount or '' }}" placeholder="50.00">
           </label>
           <label class="field">
@@ -78,6 +78,7 @@
         <ul class="hint-list">
           <li>Клиент переводит только сумму, выданную инвойсом.</li>
           <li>Сеть должна совпадать с выбранной в инвойсе.</li>
+          <li>Для BTC вводите сумму в USD, курс фиксируется на TTL инвойса.</li>
           <li>Не настроенные сети автоматически отключены.</li>
         </ul>
       </div>
@@ -88,9 +89,26 @@
     (function () {
       const form = document.querySelector("form");
       const btn = document.getElementById("create-btn");
+      const networkSelect = document.getElementById("network-select");
+      const amountLabel = document.getElementById("amount-label");
       if (!form || !btn) {
         return;
       }
+
+      const updateAmountLabel = () => {
+        if (!networkSelect || !amountLabel) {
+          return;
+        }
+        const selected = networkSelect.options[networkSelect.selectedIndex];
+        const currency = selected ? (selected.dataset.inputCurrency || "USDT") : "USDT";
+        amountLabel.textContent = "Base Amount (" + currency + ")";
+      };
+
+      updateAmountLabel();
+      if (networkSelect) {
+        networkSelect.addEventListener("change", updateAmountLabel);
+      }
+
       form.addEventListener("submit", function () {
         btn.disabled = true;
         btn.textContent = "Creating...";

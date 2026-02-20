@@ -31,6 +31,23 @@
           <div class="detail-key">Amount</div>
           <div class="detail-value mono">{{ amount_text }} {{ payment.asset_symbol }}</div>
         </div>
+        {% if pricing and pricing.quote_currency %}
+          <div class="detail-item">
+            <div class="detail-key">Quoted Amount</div>
+            <div class="detail-value mono">{{ base_amount_text }} {{ pricing.quote_currency }}</div>
+          </div>
+          <div class="detail-item">
+            <div class="detail-key">Locked Rate</div>
+            <div class="detail-value mono">
+              1 BTC = {{ pricing.btc_usd_rate }} {{ pricing.quote_currency }}
+              {% if pricing.rate_source %}<span class="subline">source: {{ pricing.rate_source }}</span>{% endif %}
+            </div>
+          </div>
+          <div class="detail-item">
+            <div class="detail-key">Rate Locked At</div>
+            <div class="detail-value">{{ pricing.quoted_at }}</div>
+          </div>
+        {% endif %}
         <div class="detail-item">
           <div class="detail-key">Destination Address</div>
           <div class="detail-value mono text-break">{{ payment.destination_address }}</div>

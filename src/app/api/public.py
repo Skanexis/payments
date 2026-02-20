@@ -38,16 +38,21 @@ def pay_page(payment_id: str, request: Request, db: Session = Depends(get_db)):
     if payment is None:
         raise HTTPException(status_code=404, detail="Payment not found")
     precision = payment_service.network_precision(payment.network)
+    base_precision = payment_service.network_input_precision(payment.network)
+    payment_data = payment_service.serialize_payment(payment)
+    metadata = payment_data.get("metadata", {}) if isinstance(payment_data.get("metadata"), dict) else {}
+    pricing = metadata.get("pricing", {}) if isinstance(metadata.get("pricing"), dict) else {}
 
     return templates.TemplateResponse(
         "public_payment.html",
         {
             "request": request,
             "payment": payment,
-            "payment_data": payment_service.serialize_payment(payment),
+            "payment_data": payment_data,
             "pay_amount": format_amount(payment.pay_amount, precision=precision),
-            "base_amount": format_amount(payment.base_amount, precision=precision),
+            "base_amount": format_amount(payment.base_amount, precision=base_precision),
             "expires_at": ensure_utc(payment.expires_at),
+            "pricing": pricing,
         },
     )
 

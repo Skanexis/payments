@@ -11,7 +11,7 @@ from .config import get_settings
 from .db import SessionLocal, init_db
 from .models import Payment
 from .services.payment_service import PaymentService
-from .utils import ensure_utc, format_amount
+from .utils import ensure_utc, format_amount, loads_json
 
 
 logging.basicConfig(
@@ -91,14 +91,24 @@ async def cmd_invoice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await update.effective_message.reply_text(f"Failed to create payment: {exc}")
             return
 
+    metadata = loads_json(payment.metadata_json)
+    pricing = metadata.get("pricing", {}) if isinstance(metadata.get("pricing"), dict) else {}
+    quote_line = ""
+    if network == "btc" and pricing:
+        quote_currency = pricing.get("quote_currency", "USD")
+        quote_amount = pricing.get("quote_amount", "-")
+        btc_usd_rate = pricing.get("btc_usd_rate", "-")
+        quote_line = f"\nQuote: {quote_amount} {quote_currency} @ {btc_usd_rate} {quote_currency}/BTC"
+
     pay_url = f"{settings.base_url.rstrip('/')}/pay/{payment.id}"
     await update.effective_message.reply_text(
         "Payment created\n"
         f"ID: {payment.id}\n"
         f"Network: {payment.network}\n"
-        f"Amount: {format_amount(payment.pay_amount)} {payment.asset_symbol}\n"
+        f"Amount: {format_amount(payment.pay_amount, precision=payment_service.network_precision(payment.network))} {payment.asset_symbol}\n"
         f"Address: {payment.destination_address}\n"
         f"Pay link: {pay_url}"
+        f"{quote_line}"
     )
 
 
@@ -129,7 +139,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         "Payment status\n"
         f"ID: {payment.id}\n"
         f"Status: {payment.status}\n"
-        f"Amount: {format_amount(payment.pay_amount)} {payment.asset_symbol}\n"
+        f"Amount: {format_amount(payment.pay_amount, precision=payment_service.network_precision(payment.network))} {payment.asset_symbol}\n"
         f"TX: {payment.tx_hash or '-'}\n"
         f"Updated: {updated_at.isoformat() if updated_at else '-'}"
     )

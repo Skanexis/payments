@@ -38,7 +38,9 @@
 
 ## Важная логика авто-сверки
 
-Платежи создаются с **уникальной суммой**: `base_amount + offset`.
+Платежи создаются с **уникальной суммой к переводу**:
+- для USDT сетей: `pay_amount = base_amount + offset`;
+- для BTC: админ вводит `base_amount` в USD, система конвертирует в BTC по текущему курсу, фиксирует его на время TTL и применяет микросмещение `offset` в BTC.
 
 Почему так: вы получаете переводы на один и тот же адрес TrustWallet. Чтобы сопоставить транзакцию конкретному счету без custodial-провайдера, используется точная сумма инвойса.
 
@@ -56,7 +58,7 @@
 - Строгая проверка суммы:
   - до 6 знаков для USDT сетей, до 8 знаков для BTC;
   - диапазон `PAYMENT_MIN_BASE_AMOUNT .. PAYMENT_MAX_BASE_AMOUNT` для USDT;
-  - диапазон `BTC_MIN_BASE_AMOUNT .. BTC_MAX_BASE_AMOUNT` для BTC.
+  - диапазон `BTC_MIN_BASE_AMOUNT .. BTC_MAX_BASE_AMOUNT` для BTC (ввод в USD).
 - Строгая проверка TTL:
   - диапазон `PAYMENT_TTL_MIN_MINUTES .. PAYMENT_TTL_MAX_MINUTES`.
 - Защита от дублей `tx_hash`:
@@ -124,6 +126,9 @@ cp .env.example .env
 - `ETH_WALLET_ADDRESS` и/или `BTC_WALLET_ADDRESS`
 - `BASE_URL`
 - `TRON_REQUIRED_CONFIRMATIONS` / `BSC_REQUIRED_CONFIRMATIONS` / `ETH_REQUIRED_CONFIRMATIONS` / `BTC_REQUIRED_CONFIRMATIONS`
+- `BTC_USD_RATE_PROVIDER_ORDER` (например: `coingecko,binance,coinbase`)
+- `BTC_USD_RATE_TIMEOUT_SECONDS`
+- `BTC_USD_RATE_API_BASE` / `BTC_USD_RATE_BINANCE_API_BASE` / `BTC_USD_RATE_COINBASE_API_BASE`
 
 6. Запустите web:
 

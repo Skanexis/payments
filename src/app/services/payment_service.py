@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_UP, Decimal, InvalidOperation
 from typing import Any
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -19,6 +20,12 @@ class NetworkInfo:
     title: str
     asset_symbol: str
     precision: int
+
+
+@dataclass(frozen=True)
+class BtcUsdQuote:
+    rate: Decimal
+    source: str
 
 
 NETWORKS: dict[str, NetworkInfo] = {
@@ -71,11 +78,13 @@ class PaymentService:
         options: list[dict[str, Any]] = []
         for network, info in self.get_networks().items():
             wallet = self.get_network_wallet(network)
+            input_currency = "USD" if network == "btc" else info.asset_symbol
             options.append(
                 {
                     "code": info.code,
                     "title": info.title,
                     "asset_symbol": info.asset_symbol,
+                    "input_currency": input_currency,
                     "wallet": wallet,
                     "configured": bool(wallet),
                     "required_confirmations": self.required_confirmations(network),
@@ -99,6 +108,11 @@ class PaymentService:
         if info is None:
             return 6
         return info.precision
+
+    def network_input_precision(self, network: str) -> int:
+        if network == "btc":
+            return max(0, self.settings.btc_input_precision)
+        return self.network_precision(network)
 
     def network_asset_symbol(self, network: str) -> str:
         info = self.get_networks().get(network)
@@ -140,8 +154,27 @@ class PaymentService:
         amount_base = self._validate_and_normalize_amount(
             network=network,
             base_amount=base_amount,
-            precision=network_info.precision,
+            precision=self.network_input_precision(network),
         )
+
+        metadata_payload = dict(metadata or {})
+        pay_seed_amount = amount_base
+        if network == "btc":
+            quote = self._fetch_btc_usd_quote()
+            btc_usd_rate = quote.rate
+            pay_seed_amount = self._convert_usd_to_btc(
+                amount_usd=amount_base,
+                btc_usd_rate=btc_usd_rate,
+                precision=network_info.precision,
+            )
+            metadata_payload["pricing"] = {
+                "quote_currency": "USD",
+                "asset_symbol": "BTC",
+                "quote_amount": format_amount(amount_base, precision=self.network_input_precision(network)),
+                "btc_usd_rate": format_amount(btc_usd_rate, precision=2),
+                "rate_source": quote.source,
+                "quoted_at": (ensure_utc(utcnow()) or utcnow()).isoformat(),
+            }
 
         external_id_clean = external_id.strip() if external_id else None
         if external_id_clean:
@@ -172,7 +205,7 @@ class PaymentService:
         pay_amount, offset_steps = self._allocate_amount_slot(
             db=db,
             network=network,
-            base_amount=amount_base,
+            base_amount=pay_seed_amount,
             precision=network_info.precision,
         )
         now = utcnow()
@@ -197,7 +230,7 @@ class PaymentService:
             updated_at=now,
             expires_at=expires_at,
             paid_at=None,
-            metadata_json=dumps_json(metadata or {}),
+            metadata_json=dumps_json(metadata_payload),
         )
         db.add(payment)
         db.flush()
@@ -208,12 +241,28 @@ class PaymentService:
             message="Payment created",
             context={
                 "network": network,
-                "base_amount": format_amount(amount_base, precision=network_info.precision),
+                "base_amount": format_amount(amount_base, precision=self.network_input_precision(network)),
                 "pay_amount": format_amount(pay_amount, precision=network_info.precision),
                 "expires_at": ensure_utc(expires_at).isoformat(),
                 "required_confirmations": self.required_confirmations(network),
             },
         )
+        if network == "btc":
+            pricing = metadata_payload.get("pricing", {})
+            self.add_log(
+                db=db,
+                payment_id=payment.id,
+                level="info",
+                message="BTC quote locked for invoice lifetime",
+                context={
+                    "event_code": "BTC_RATE_LOCKED",
+                    "quote_currency": pricing.get("quote_currency"),
+                    "quote_amount": pricing.get("quote_amount"),
+                    "btc_usd_rate": pricing.get("btc_usd_rate"),
+                    "rate_source": pricing.get("rate_source"),
+                    "quoted_at": pricing.get("quoted_at"),
+                },
+            )
         db.commit()
         db.refresh(payment)
         return payment
@@ -468,6 +517,90 @@ class PaymentService:
             raw_step = self.settings.btc_amount_step
         return quantize_amount(raw_step, precision=precision)
 
+    def _fetch_btc_usd_quote(self) -> BtcUsdQuote:
+        providers = self._btc_rate_provider_order()
+        timeout = max(2, self.settings.btc_usd_rate_timeout_seconds)
+        errors: list[str] = []
+
+        with httpx.Client(timeout=timeout) as client:
+            for provider in providers:
+                try:
+                    if provider == "coingecko":
+                        rate = self._btc_rate_from_coingecko(client)
+                    elif provider == "binance":
+                        rate = self._btc_rate_from_binance(client)
+                    elif provider == "coinbase":
+                        rate = self._btc_rate_from_coinbase(client)
+                    else:
+                        continue
+                except Exception as exc:
+                    errors.append(f"{provider}:{exc.__class__.__name__}")
+                    continue
+
+                if rate <= 0:
+                    errors.append(f"{provider}:non_positive")
+                    continue
+                return BtcUsdQuote(rate=rate, source=provider)
+
+        detail = ", ".join(errors[:3])
+        if detail:
+            raise ValueError(f"BTC/USD quote service is unavailable. Try again later. ({detail})")
+        raise ValueError("BTC/USD quote service is unavailable. Try again later.")
+
+    def _btc_rate_provider_order(self) -> list[str]:
+        raw = (self.settings.btc_usd_rate_provider_order or "").strip()
+        if not raw:
+            return ["coingecko", "binance", "coinbase"]
+        output: list[str] = []
+        for chunk in raw.split(","):
+            item = chunk.strip().lower()
+            if not item:
+                continue
+            if item not in ("coingecko", "binance", "coinbase"):
+                continue
+            if item not in output:
+                output.append(item)
+        if not output:
+            return ["coingecko", "binance", "coinbase"]
+        return output
+
+    def _btc_rate_from_coingecko(self, client: httpx.Client) -> Decimal:
+        response = client.get(
+            self.settings.btc_usd_rate_api_base,
+            params={"ids": "bitcoin", "vs_currencies": "usd"},
+        )
+        response.raise_for_status()
+        payload = response.json()
+        bitcoin = payload.get("bitcoin") if isinstance(payload, dict) else None
+        usd_value = bitcoin.get("usd") if isinstance(bitcoin, dict) else None
+        return to_decimal(usd_value)
+
+    def _btc_rate_from_binance(self, client: httpx.Client) -> Decimal:
+        response = client.get(
+            self.settings.btc_usd_rate_binance_api_base,
+            params={"symbol": "BTCUSDT"},
+        )
+        response.raise_for_status()
+        payload = response.json()
+        price = payload.get("price") if isinstance(payload, dict) else None
+        return to_decimal(price)
+
+    def _btc_rate_from_coinbase(self, client: httpx.Client) -> Decimal:
+        response = client.get(self.settings.btc_usd_rate_coinbase_api_base)
+        response.raise_for_status()
+        payload = response.json()
+        data = payload.get("data") if isinstance(payload, dict) else None
+        amount = data.get("amount") if isinstance(data, dict) else None
+        return to_decimal(amount)
+
+    def _convert_usd_to_btc(self, *, amount_usd: Decimal, btc_usd_rate: Decimal, precision: int) -> Decimal:
+        if btc_usd_rate <= 0:
+            raise ValueError("BTC/USD rate must be positive")
+        raw_btc = amount_usd / btc_usd_rate
+        quantum = Decimal("1").scaleb(-precision)
+        # Round up so invoice value never drops below requested USD quote.
+        return raw_btc.quantize(quantum, rounding=ROUND_UP)
+
     def add_log(
         self,
         db: Session,
@@ -493,6 +626,7 @@ class PaymentService:
         expires_at = ensure_utc(payment.expires_at)
         paid_at = ensure_utc(payment.paid_at)
         precision = self.network_precision(payment.network)
+        base_precision = self.network_input_precision(payment.network)
 
         return {
             "id": payment.id,
@@ -502,7 +636,7 @@ class PaymentService:
             "network": payment.network,
             "asset_symbol": payment.asset_symbol,
             "destination_address": payment.destination_address,
-            "base_amount": format_amount(payment.base_amount, precision=precision),
+            "base_amount": format_amount(payment.base_amount, precision=base_precision),
             "pay_amount": format_amount(payment.pay_amount, precision=precision),
             "actual_amount": format_amount(payment.actual_amount, precision=precision) if payment.actual_amount is not None else None,
             "status": payment.status,
