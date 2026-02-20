@@ -1,13 +1,43 @@
 {% extends "base.html" %}
 {% block content %}
-  <section class="panel">
-    <div class="section-head">
+  <section class="panel panel-soft">
+    <div class="page-head">
       <div>
-        <h1>{{ app_name }}</h1>
-        <p class="hint">Сервис выставления крипто-инвойсов и автоматической проверки входящих переводов на ваш TrustWallet адрес.</p>
+        <h1 class="page-title">Crypto Payment Console</h1>
+        <p class="page-subtitle">Сервис выставления крипто-инвойсов и автоматической сверки входящих переводов на TrustWallet адреса.</p>
       </div>
-      <a class="btn btn-primary" href="/admin/login">Перейти в админку</a>
+      <div class="actions">
+        <a class="btn btn-primary" href="/admin/login">Open Admin</a>
+      </div>
     </div>
-    <p class="hint">Публичная ссылка оплаты для клиента: <span class="mono">/pay/&lt;payment_id&gt;</span></p>
+  </section>
+
+  <section class="split-grid">
+    <article class="panel">
+      <h2 class="panel-title">Как это работает</h2>
+      <div class="detail-list">
+        <div class="detail-item">
+          <div class="detail-key">Step 1</div>
+          <div class="detail-value">Администратор создает платеж в нужной сети (TRON/BSC).</div>
+        </div>
+        <div class="detail-item">
+          <div class="detail-key">Step 2</div>
+          <div class="detail-value">Клиент получает публичную ссылку вида <span class="mono">/pay/&lt;payment_id&gt;</span>.</div>
+        </div>
+        <div class="detail-item">
+          <div class="detail-key">Step 3</div>
+          <div class="detail-value">Монитор автоматически находит перевод и обновляет статус после подтверждений.</div>
+        </div>
+      </div>
+    </article>
+
+    <article class="panel panel-soft">
+      <h2 class="panel-title">Быстрый старт</h2>
+      <ul class="hint-list">
+        <li>Зайдите в админку и создайте тестовый инвойс.</li>
+        <li>Откройте ссылку оплаты и отправьте тестовый перевод.</li>
+        <li>Проверьте изменения статуса в `Dashboard` и `Transfers`.</li>
+      </ul>
+    </article>
   </section>
 {% endblock %}

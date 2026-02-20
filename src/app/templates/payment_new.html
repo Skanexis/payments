@@ -1,59 +1,88 @@
 {% extends "base.html" %}
 {% block content %}
-  <section class="panel panel-narrow">
-    <div class="section-head">
-      <div>
-        <h1>Создать платеж</h1>
-        <p class="hint">Для авто-сверки используется уникальная сумма (`base_amount + offset`). Клиенту нужно перевести ровно указанную сумму.</p>
-      </div>
+  <section class="page-head">
+    <div>
+      <h1 class="page-title">Create Payment</h1>
+      <p class="page-subtitle">Создайте инвойс с уникальной суммой для точного авто-матчинга входящего перевода.</p>
     </div>
-    {% if error %}
-      <p class="error">{{ error }}</p>
-    {% endif %}
-    <form method="post" action="/admin/payments/new">
-      <label>
-        Название
-        <input type="text" name="title" required value="{{ values.title or '' }}" placeholder="Например: Доступ к приватному каналу">
-      </label>
-      <label>
-        Внешний ID (опционально)
-        <input type="text" name="external_id" value="{{ values.external_id or '' }}" placeholder="order-1001">
-      </label>
-      <label>
-        Сеть
-        <select name="network" required>
-          {% for option in network_options %}
-            <option value="{{ option.code }}" {% if values.network == option.code %}selected{% endif %} {% if not option.configured %}disabled{% endif %}>
-              {{ option.title }} {% if not option.configured %}(wallet не настроен){% endif %}
-            </option>
-          {% endfor %}
-        </select>
-      </label>
-      <div class="hint-list">
+  </section>
+
+  <section class="split-grid">
+    <article class="panel">
+      {% if error %}
+        <div class="alert alert-error">{{ error }}</div>
+      {% endif %}
+
+      <form method="post" action="/admin/payments/new">
+        <label class="field">
+          <span class="field-label">Title</span>
+          <input type="text" name="title" required value="{{ values.title or '' }}" placeholder="Например: Доступ к приватному каналу">
+        </label>
+
+        <label class="field">
+          <span class="field-label">External ID (optional)</span>
+          <input type="text" name="external_id" value="{{ values.external_id or '' }}" placeholder="order-1001">
+        </label>
+
+        <label class="field">
+          <span class="field-label">Network</span>
+          <select name="network" required>
+            {% for option in network_options %}
+              <option value="{{ option.code }}" {% if values.network == option.code %}selected{% endif %} {% if not option.configured %}disabled{% endif %}>
+                {{ option.title }} {% if not option.configured %}(wallet не настроен){% endif %}
+              </option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <div class="form-grid">
+          <label class="field">
+            <span class="field-label">Base Amount (USDT)</span>
+            <input type="text" name="base_amount" required value="{{ values.base_amount or '' }}" placeholder="50.00">
+          </label>
+          <label class="field">
+            <span class="field-label">TTL (minutes)</span>
+            <input type="number" name="ttl_minutes" min="1" max="1440" value="{{ values.ttl_minutes or default_ttl }}">
+          </label>
+        </div>
+
+        <label class="field">
+          <span class="field-label">Description</span>
+          <textarea name="description" placeholder="Описание для клиента">{{ values.description or '' }}</textarea>
+        </label>
+
+        <div class="form-actions">
+          <button id="create-btn" class="btn btn-primary" type="submit">Create Payment</button>
+          <a class="btn btn-outline" href="/admin">Cancel</a>
+        </div>
+      </form>
+    </article>
+
+    <aside class="panel panel-soft">
+      <h2 class="panel-title">Network Settings</h2>
+      <p class="panel-subtitle">Проверьте адреса и required confirmations перед созданием.</p>
+
+      <div class="detail-list">
         {% for option in network_options %}
-          <div>{{ option.title }}: {{ option.wallet or "wallet не указан" }}, подтверждений: {{ option.required_confirmations }}</div>
+          <div class="detail-item">
+            <div class="detail-key">{{ option.title }}</div>
+            <div class="detail-value">wallet: <span class="mono text-break">{{ option.wallet or "не указан" }}</span></div>
+            <div class="detail-value">confirmations: {{ option.required_confirmations }}</div>
+          </div>
         {% endfor %}
       </div>
-      <div class="form-row">
-        <label>
-          Сумма (USDT)
-          <input type="text" name="base_amount" required value="{{ values.base_amount or '' }}" placeholder="50.00">
-        </label>
-        <label>
-          Время жизни (минуты)
-          <input type="number" name="ttl_minutes" min="1" max="1440" value="{{ values.ttl_minutes or default_ttl }}">
-        </label>
+
+      <div class="hint-box">
+        <p class="hint-title">Важно</p>
+        <ul class="hint-list">
+          <li>Клиент переводит только сумму, выданную инвойсом.</li>
+          <li>Сеть должна совпадать с выбранной в инвойсе.</li>
+          <li>Не настроенные сети автоматически отключены.</li>
+        </ul>
       </div>
-      <label>
-        Описание
-        <textarea name="description" placeholder="Описание для клиента">{{ values.description or '' }}</textarea>
-      </label>
-      <div class="actions">
-        <button id="create-btn" class="btn btn-primary" type="submit">Создать платеж</button>
-        <a class="btn btn-outline" href="/admin">Отмена</a>
-      </div>
-    </form>
+    </aside>
   </section>
+
   <script>
     (function () {
       const form = document.querySelector("form");
@@ -63,7 +92,7 @@
       }
       form.addEventListener("submit", function () {
         btn.disabled = true;
-        btn.textContent = "Создание...";
+        btn.textContent = "Creating...";
       });
     })();
   </script>

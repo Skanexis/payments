@@ -1,66 +1,300 @@
 {% extends "base.html" %}
 {% block content %}
-  <section class="panel">
-    <div class="section-head">
-      <div>
-        <h1>Платежи</h1>
-        <p class="hint">Операционная панель инвойсов и статусов оплат.</p>
-      </div>
-      <a class="btn btn-primary" href="/admin/payments/new">Создать платеж</a>
+  {% set stats_other = stats_total - stats_paid - stats_pending - stats_confirming %}
+  {% if stats_other < 0 %}
+    {% set stats_other = 0 %}
+  {% endif %}
+
+  <section class="page-head">
+    <div>
+      <h1 class="page-title">Dashboard</h1>
+      <p class="page-subtitle">Контроль инвойсов, статусов оплаты и качества матчинга транзакций.</p>
     </div>
-    <div class="grid grid-4">
-      <article class="metric">
-        <div class="label">Всего</div>
-        <div class="value">{{ stats_total }}</div>
-      </article>
-      <article class="metric">
-        <div class="label">Ожидают</div>
-        <div class="value">{{ stats_pending }}</div>
-      </article>
-      <article class="metric">
-        <div class="label">Подтверждения</div>
-        <div class="value">{{ stats_confirming }}</div>
-      </article>
-      <article class="metric">
-        <div class="label">Оплачены</div>
-        <div class="value">{{ stats_paid }}</div>
-      </article>
+    <div class="actions">
+      <a class="btn btn-primary" href="/admin/payments/new">Create Payment</a>
     </div>
   </section>
 
+  <section class="stats-grid">
+    <article class="stat-card">
+      <div class="stat-label">Total Payments</div>
+      <div class="stat-value">{{ stats_total }}</div>
+      <div class="stat-note">Все инвойсы в системе</div>
+    </article>
+    <article class="stat-card">
+      <div class="stat-label">Pending</div>
+      <div class="stat-value">{{ stats_pending }}</div>
+      <div class="stat-note">Ожидают перевод</div>
+    </article>
+    <article class="stat-card">
+      <div class="stat-label">Confirming</div>
+      <div class="stat-value">{{ stats_confirming }}</div>
+      <div class="stat-note">Есть tx, ждут подтверждения</div>
+    </article>
+    <article class="stat-card">
+      <div class="stat-label">Paid</div>
+      <div class="stat-value">{{ stats_paid }}</div>
+      <div class="stat-note">Успешно завершены</div>
+    </article>
+  </section>
+
+  <section class="insights-grid">
+    <article class="panel chart-card">
+      <div class="panel-head compact">
+        <div>
+          <h2 class="panel-title">Payment Mix</h2>
+          <p class="panel-subtitle">Распределение текущих статусов.</p>
+        </div>
+      </div>
+
+      <div class="donut-layout">
+        <div class="donut-wrap">
+          <div
+            id="status-donut"
+            class="donut-chart"
+            data-paid="{{ stats_paid }}"
+            data-pending="{{ stats_pending }}"
+            data-confirming="{{ stats_confirming }}"
+            data-other="{{ stats_other }}"
+          ></div>
+          <div class="donut-center">
+            <span class="donut-center-value">{{ stats_total }}</span>
+            <span class="donut-center-label">Total</span>
+          </div>
+        </div>
+
+        <div class="legend-list">
+          <div class="legend-row">
+            <span class="legend-dot paid"></span>
+            <span class="legend-name">Paid</span>
+            <span class="legend-value">{{ stats_paid }}</span>
+          </div>
+          <div class="legend-row">
+            <span class="legend-dot pending"></span>
+            <span class="legend-name">Pending</span>
+            <span class="legend-value">{{ stats_pending }}</span>
+          </div>
+          <div class="legend-row">
+            <span class="legend-dot confirming"></span>
+            <span class="legend-name">Confirming</span>
+            <span class="legend-value">{{ stats_confirming }}</span>
+          </div>
+          <div class="legend-row">
+            <span class="legend-dot other"></span>
+            <span class="legend-name">Other</span>
+            <span class="legend-value">{{ stats_other }}</span>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <article class="panel chart-card">
+      <div class="panel-head compact">
+        <div>
+          <h2 class="panel-title">7-Day Activity</h2>
+          <p class="panel-subtitle">Количество новых инвойсов за последние 7 дней.</p>
+        </div>
+      </div>
+
+      <div class="line-summary">
+        <div class="line-summary-item">
+          <span class="line-summary-label">Today</span>
+          <span id="today-count" class="line-summary-value">0</span>
+        </div>
+        <div class="line-summary-item">
+          <span class="line-summary-label">7 Days</span>
+          <span id="week-count" class="line-summary-value">0</span>
+        </div>
+      </div>
+
+      <div class="line-chart-shell">
+        <svg id="activity-chart" class="line-chart" viewBox="0 0 360 170" data-created="{% for payment in payments %}{{ payment.created_at.isoformat() }}{% if not loop.last %},{% endif %}{% endfor %}">
+          <g class="line-grid"></g>
+          <polygon class="line-area" points=""></polygon>
+          <polyline class="line-path" points=""></polyline>
+          <g class="line-dots"></g>
+        </svg>
+        <div id="activity-labels" class="line-labels"></div>
+      </div>
+    </article>
+  </section>
+
   <section class="panel">
-    <div class="section-head">
-      <h2>Последние 100 платежей</h2>
+    <div class="panel-head">
+      <div>
+        <h2 class="panel-title">Payments</h2>
+        <p class="panel-subtitle">Последние 100 платежей с быстрым переходом в карточку.</p>
+      </div>
     </div>
+
     <div class="table-wrap">
       <table>
         <thead>
-        <tr>
-          <th>ID</th>
-          <th>Название</th>
-          <th>Сеть</th>
-          <th>Сумма</th>
-          <th>Статус</th>
-          <th>Создан</th>
-        </tr>
+          <tr>
+            <th>ID</th>
+            <th>Title</th>
+            <th>Network</th>
+            <th>Amount</th>
+            <th>Status</th>
+            <th>Created</th>
+          </tr>
         </thead>
         <tbody>
-        {% for payment in payments %}
-          <tr>
-            <td data-label="ID"><a class="mono" href="/admin/payments/{{ payment.id }}">{{ payment.id[:8] }}</a></td>
-            <td data-label="Название">{{ payment.title }}</td>
-            <td data-label="Сеть">{{ payment.network }}</td>
-            <td data-label="Сумма" class="mono">{{ payment.pay_amount|amt }}</td>
-            <td data-label="Статус"><span class="status-pill status-{{ payment.status }}">{{ payment.status }}</span></td>
-            <td data-label="Создан">{{ payment.created_at|dt }}</td>
-          </tr>
-        {% else %}
-          <tr>
-            <td class="empty-cell" colspan="6">Пока платежей нет.</td>
-          </tr>
-        {% endfor %}
+          {% for payment in payments %}
+            <tr>
+              <td data-label="ID"><a class="table-link mono" href="/admin/payments/{{ payment.id }}">{{ payment.id[:8] }}</a></td>
+              <td data-label="Title">{{ payment.title }}</td>
+              <td data-label="Network">{{ payment.network }}</td>
+              <td data-label="Amount" class="mono">{{ payment.pay_amount|amt }}</td>
+              <td data-label="Status"><span class="status-pill status-{{ payment.status }}">{{ payment.status }}</span></td>
+              <td data-label="Created">{{ payment.created_at|dt }}</td>
+            </tr>
+          {% else %}
+            <tr>
+              <td class="empty-cell" colspan="6">Пока платежей нет.</td>
+            </tr>
+          {% endfor %}
         </tbody>
       </table>
     </div>
   </section>
+
+  <script>
+    (function () {
+      const donutNode = document.getElementById("status-donut");
+      if (donutNode) {
+        const paid = Number(donutNode.dataset.paid || 0);
+        const pending = Number(donutNode.dataset.pending || 0);
+        const confirming = Number(donutNode.dataset.confirming || 0);
+        const other = Number(donutNode.dataset.other || 0);
+        const total = paid + pending + confirming + other;
+
+        if (total > 0) {
+          const paidPercent = (paid / total) * 100;
+          const pendingPercent = (pending / total) * 100;
+          const confirmingPercent = (confirming / total) * 100;
+          const paidEnd = paidPercent;
+          const pendingEnd = paidEnd + pendingPercent;
+          const confirmingEnd = pendingEnd + confirmingPercent;
+
+          donutNode.style.background = "conic-gradient(" +
+            "#18a26d 0% " + paidEnd + "%," +
+            "#c17a00 " + paidEnd + "% " + pendingEnd + "%," +
+            "#2252c9 " + pendingEnd + "% " + confirmingEnd + "%," +
+            "#93a2bd " + confirmingEnd + "% 100%)";
+        }
+      }
+
+      const chartNode = document.getElementById("activity-chart");
+      if (!chartNode) {
+        return;
+      }
+
+      const raw = chartNode.dataset.created || "";
+      const createdDates = raw
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .map((item) => {
+          const hasTimezone = item.endsWith("Z") || item.includes("+");
+          return new Date(hasTimezone ? item : item + "Z");
+        })
+        .filter((date) => !Number.isNaN(date.getTime()));
+
+      const now = new Date();
+      const dayKeys = [];
+      const dayLabels = [];
+      const dayCounts = [];
+
+      for (let i = 6; i >= 0; i -= 1) {
+        const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - i));
+        dayKeys.push(d.toISOString().slice(0, 10));
+        dayLabels.push(d.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit" }));
+        dayCounts.push(0);
+      }
+
+      for (const date of createdDates) {
+        const key = date.toISOString().slice(0, 10);
+        const idx = dayKeys.indexOf(key);
+        if (idx !== -1) {
+          dayCounts[idx] += 1;
+        }
+      }
+
+      const sum7 = dayCounts.reduce((acc, value) => acc + value, 0);
+      const today = dayCounts[dayCounts.length - 1] || 0;
+      const todayNode = document.getElementById("today-count");
+      const weekNode = document.getElementById("week-count");
+      if (todayNode) {
+        todayNode.textContent = String(today);
+      }
+      if (weekNode) {
+        weekNode.textContent = String(sum7);
+      }
+
+      const labelsNode = document.getElementById("activity-labels");
+      if (labelsNode) {
+        labelsNode.innerHTML = dayLabels.map((label) => "<span>" + label + "</span>").join("");
+      }
+
+      const max = Math.max(...dayCounts, 1);
+      const width = 360;
+      const height = 170;
+      const left = 14;
+      const right = 14;
+      const top = 12;
+      const bottom = 28;
+      const usableWidth = width - left - right;
+      const usableHeight = height - top - bottom;
+
+      const points = dayCounts.map((count, idx) => {
+        const x = left + (idx * usableWidth) / (dayCounts.length - 1);
+        const y = top + usableHeight - (count / max) * usableHeight;
+        return { x, y };
+      });
+
+      const gridNode = chartNode.querySelector(".line-grid");
+      if (gridNode) {
+        gridNode.innerHTML = "";
+        const xmlns = "http://www.w3.org/2000/svg";
+        [0.25, 0.5, 0.75, 1].forEach((level) => {
+          const y = top + usableHeight - usableHeight * level;
+          const line = document.createElementNS(xmlns, "line");
+          line.setAttribute("x1", String(left));
+          line.setAttribute("x2", String(left + usableWidth));
+          line.setAttribute("y1", String(y));
+          line.setAttribute("y2", String(y));
+          gridNode.appendChild(line);
+        });
+      }
+
+      const areaNode = chartNode.querySelector(".line-area");
+      if (areaNode) {
+        const areaPoints = [
+          left + "," + (top + usableHeight),
+          ...points.map((point) => point.x + "," + point.y),
+          left + usableWidth + "," + (top + usableHeight),
+        ];
+        areaNode.setAttribute("points", areaPoints.join(" "));
+      }
+
+      const pathNode = chartNode.querySelector(".line-path");
+      if (pathNode) {
+        pathNode.setAttribute("points", points.map((point) => point.x + "," + point.y).join(" "));
+      }
+
+      const dotsNode = chartNode.querySelector(".line-dots");
+      if (dotsNode) {
+        dotsNode.innerHTML = "";
+        const xmlns = "http://www.w3.org/2000/svg";
+        points.forEach((point) => {
+          const dot = document.createElementNS(xmlns, "circle");
+          dot.setAttribute("cx", String(point.x));
+          dot.setAttribute("cy", String(point.y));
+          dot.setAttribute("r", "3.5");
+          dotsNode.appendChild(dot);
+        });
+      }
+    })();
+  </script>
 {% endblock %}

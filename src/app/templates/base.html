@@ -6,30 +6,118 @@
   <title>{{ title or "Crypto Pay" }}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Manrope:wght@400;500;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-  <div class="shell">
-    <div class="topbar">
-      <div class="brand">
-        <div class="brand-title">Crypto Payment Console</div>
-        <div class="brand-subtitle">Enterprise Operations</div>
-      </div>
-      <div class="menu">
-        {% if admin_user %}
-          <a href="/admin">Платежи</a>
-          <a href="/admin/payments/new">Создать</a>
-          <a href="/admin/transfers">Транзакции</a>
-          <a href="/admin/logs">Логи</a>
-          <span>{{ admin_user.username }}</span>
-          <a href="/admin/logout">Выйти</a>
-        {% else %}
-          <a href="/admin/login">Админка</a>
-        {% endif %}
+  {% set path = request.url.path %}
+  {% set is_admin = admin_user is defined and admin_user %}
+
+  {% if is_admin %}
+    {% set dashboard_active = path == '/admin' or path == '/admin/' %}
+    {% set create_active = path.startswith('/admin/payments/new') %}
+    {% set payments_active = path.startswith('/admin/payments/') and not create_active %}
+    {% set transfers_active = path.startswith('/admin/transfers') %}
+    {% set logs_active = path.startswith('/admin/logs') %}
+
+    <div class="admin-layout">
+      <aside class="sidebar">
+        <a class="sidebar-brand" href="/admin">
+          <span class="brand-logo">CP</span>
+          <span class="brand-copy">
+            <span class="brand-title">Crypto Pay</span>
+            <span class="brand-subtitle">Operations Console</span>
+          </span>
+        </a>
+
+        <nav class="sidebar-nav">
+          <a class="sidebar-link {% if dashboard_active %}active{% endif %}" href="/admin">
+            <span class="sidebar-link-inner">
+              <svg class="sidebar-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M3 13h8V3H3v10Zm0 8h8v-6H3v6Zm10 0h8V11h-8v10Zm0-18v6h8V3h-8Z"/>
+              </svg>
+              <span>Dashboard</span>
+            </span>
+          </a>
+          <a class="sidebar-link {% if payments_active %}active{% endif %}" href="/admin">
+            <span class="sidebar-link-inner">
+              <svg class="sidebar-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Zm0 4h16M7 14h4"/>
+              </svg>
+              <span>Payments</span>
+            </span>
+          </a>
+          <a class="sidebar-link {% if create_active %}active{% endif %}" href="/admin/payments/new">
+            <span class="sidebar-link-inner">
+              <svg class="sidebar-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 5v14m7-7H5"/>
+              </svg>
+              <span>Create Payment</span>
+            </span>
+          </a>
+          <a class="sidebar-link {% if transfers_active %}active{% endif %}" href="/admin/transfers">
+            <span class="sidebar-link-inner">
+              <svg class="sidebar-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M7 7h10m0 0-3-3m3 3-3 3M17 17H7m0 0 3-3m-3 3 3 3"/>
+              </svg>
+              <span>Transfers</span>
+            </span>
+          </a>
+          <a class="sidebar-link {% if logs_active %}active{% endif %}" href="/admin/logs">
+            <span class="sidebar-link-inner">
+              <svg class="sidebar-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M7 3h7l5 5v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Zm7 1v5h5M9 13h6M9 17h6M9 9h2"/>
+              </svg>
+              <span>Logs</span>
+            </span>
+          </a>
+        </nav>
+
+        <div class="sidebar-footer">
+          <div class="sidebar-orb orb-a"></div>
+          <div class="sidebar-orb orb-b"></div>
+          <div class="sidebar-orb orb-c"></div>
+          <div class="sidebar-version">Crypto Pay v2</div>
+        </div>
+      </aside>
+
+      <div class="admin-main">
+        <header class="admin-topbar">
+          <div class="admin-topbar-spacer"></div>
+          <div class="admin-topbar-actions">
+            <a class="top-chip" href="/admin/payments/new">Create</a>
+            <span class="user-avatar">{{ admin_user.username[:1]|upper }}</span>
+            <a class="top-logout" href="/admin/logout">Logout</a>
+          </div>
+        </header>
+
+        <main class="page-content">
+  {% else %}
+    <div class="public-shell">
+      <header class="public-topbar">
+        <a class="public-brand" href="/">
+          <span class="brand-logo">CP</span>
+          <span class="brand-copy">
+            <span class="brand-title">Crypto Pay</span>
+            <span class="brand-subtitle">Payment Gateway</span>
+          </span>
+        </a>
+        <nav class="public-nav">
+          <a class="public-link {% if path == '/' %}active{% endif %}" href="/">Home</a>
+          <a class="public-link {% if path.startswith('/admin/login') %}active{% endif %}" href="/admin/login">Admin</a>
+        </nav>
+      </header>
+
+      <main class="page-content public-content">
+  {% endif %}
+          {% block content %}{% endblock %}
+      </main>
+
+  {% if is_admin %}
       </div>
     </div>
-    {% block content %}{% endblock %}
-  </div>
+  {% else %}
+    </div>
+  {% endif %}
 </body>
 </html>

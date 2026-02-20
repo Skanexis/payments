@@ -1,47 +1,55 @@
 {% extends "base.html" %}
 {% block content %}
+  <section class="page-head">
+    <div>
+      <h1 class="page-title">Transfers</h1>
+      <p class="page-subtitle">Наблюдаемые входящие транзакции и результат матчинга с платежами.</p>
+    </div>
+  </section>
+
   <section class="panel">
-    <div class="section-head">
+    <div class="panel-head">
       <div>
-        <h1>Наблюдаемые транзакции</h1>
-        <p class="hint">Сюда попадают входящие переводы, включая нераспознанные. Это основной экран для разбора спорных случаев.</p>
+        <h2 class="panel-title">Observed Transfers</h2>
+        <p class="panel-subtitle">До 400 последних tx из мониторинга блокчейна.</p>
       </div>
     </div>
+
     <div class="table-wrap">
       <table>
         <thead>
-        <tr>
-          <th>Сеть</th>
-          <th>Tx hash</th>
-          <th>Сумма</th>
-          <th>Подтв.</th>
-          <th>Статус</th>
-          <th>Payment</th>
-          <th>Последнее обновление</th>
-        </tr>
+          <tr>
+            <th>Network</th>
+            <th>Tx hash</th>
+            <th>Amount</th>
+            <th>Conf.</th>
+            <th>Status</th>
+            <th>Payment</th>
+            <th>Updated</th>
+          </tr>
         </thead>
         <tbody>
-        {% for t in transfers %}
-          <tr>
-            <td data-label="Сеть">{{ t.network }}</td>
-            <td data-label="Tx hash" class="mono">{{ t.tx_hash }}</td>
-            <td data-label="Сумма" class="mono">{{ t.amount|amt if t.amount else "-" }}</td>
-            <td data-label="Подтв.">{{ t.confirmations }}</td>
-            <td data-label="Статус"><span class="status-pill status-{{ t.match_status }}">{{ t.match_status }}</span></td>
-            <td data-label="Payment" class="mono">
-              {% if t.matched_payment_id %}
-                <a href="/admin/payments/{{ t.matched_payment_id }}">{{ t.matched_payment_id[:8] }}</a>
-              {% else %}
-                -
-              {% endif %}
-            </td>
-            <td data-label="Обновлено">{{ t.last_seen_at|dt }}</td>
-          </tr>
-        {% else %}
-          <tr>
-            <td class="empty-cell" colspan="7">Транзакций пока нет.</td>
-          </tr>
-        {% endfor %}
+          {% for t in transfers %}
+            <tr>
+              <td data-label="Network">{{ t.network }}</td>
+              <td data-label="Tx hash" class="mono text-break">{{ t.tx_hash }}</td>
+              <td data-label="Amount" class="mono">{{ t.amount|amt if t.amount else "-" }}</td>
+              <td data-label="Conf.">{{ t.confirmations }}</td>
+              <td data-label="Status"><span class="status-pill status-{{ t.match_status }}">{{ t.match_status }}</span></td>
+              <td data-label="Payment" class="mono">
+                {% if t.matched_payment_id %}
+                  <a class="table-link" href="/admin/payments/{{ t.matched_payment_id }}">{{ t.matched_payment_id[:8] }}</a>
+                {% else %}
+                  -
+                {% endif %}
+              </td>
+              <td data-label="Updated">{{ t.last_seen_at|dt }}</td>
+            </tr>
+          {% else %}
+            <tr>
+              <td class="empty-cell" colspan="7">Транзакций пока нет.</td>
+            </tr>
+          {% endfor %}
         </tbody>
       </table>
     </div>

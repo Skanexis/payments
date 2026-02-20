@@ -1,60 +1,72 @@
 {% extends "base.html" %}
 {% block content %}
-  <section class="panel pay-shell">
-    <div class="pay-layout">
-      <div class="pay-main">
-        <p class="pay-eyebrow">Платежный инвойс</p>
-        <h1>{{ payment.title }}</h1>
-        <p class="hint">{{ payment.description or "Оплатите счет по реквизитам ниже." }}</p>
+  <section class="page-head">
+    <div>
+      <h1 class="page-title">{{ payment.title }}</h1>
+      <p class="page-subtitle">Платежный инвойс. Отправьте точную сумму в указанной сети.</p>
+    </div>
+    <span class="status-pill status-{{ payment.status }}" id="status">{{ payment.status }}</span>
+  </section>
 
-        <div class="pay-amount-card">
-          <div class="hint">К оплате</div>
-          <p id="amount" data-amount="{{ pay_amount }}" class="pay-amount mono">{{ pay_amount }} {{ payment.asset_symbol }}</p>
-          <div class="actions">
-            <button id="copy-amount" class="btn btn-primary" type="button">Скопировать сумму</button>
-            <button id="copy-address" class="btn btn-outline" type="button">Скопировать адрес</button>
-          </div>
+  <section class="invoice-layout">
+    <article class="panel invoice-main">
+      <div class="invoice-amount-card">
+        <div class="detail-key">Amount to Pay</div>
+        <p id="amount" data-amount="{{ pay_amount }}" class="invoice-amount mono">{{ pay_amount }} {{ payment.asset_symbol }}</p>
+        <div class="copy-row">
+          <button id="copy-amount" class="btn btn-primary" type="button">Copy Amount</button>
+          <button id="copy-address" class="btn btn-outline" type="button">Copy Address</button>
         </div>
-
-        <div class="pay-status">
-          <span id="status" class="status-pill status-{{ payment.status }}">{{ payment.status }}</span>
-          <span class="hint">Подтверждения: <span id="confirmations">{{ payment.confirmations }}</span>/<span id="required-confirmations">{{ payment_data.required_confirmations if payment_data else 1 }}</span></span>
-        </div>
-
-        <p class="hint">Отправьте <strong>точную сумму</strong> и в <strong>точно указанной сети</strong>. Статус обновится автоматически после подтверждений сети.</p>
       </div>
 
-      <aside class="pay-side">
-        <div class="pay-meta">
-          <div class="pay-meta-row">
-            <span class="label">Сеть</span>
-            <span class="value">{{ payment.network }}</span>
-          </div>
-          <div class="pay-meta-row">
-            <span class="label">Адрес кошелька</span>
-            <span id="wallet-address" class="value mono text-break">{{ payment.destination_address }}</span>
-          </div>
-          <div class="pay-meta-row">
-            <span class="label">Срок оплаты</span>
-            <span class="value">{{ expires_at|dt }}</span>
-          </div>
-          <div class="pay-meta-row">
-            <span class="label">ID платежа</span>
-            <span class="value mono text-break">{{ payment.id }}</span>
-          </div>
-          <div class="pay-meta-row">
-            <span class="label">Tx hash</span>
-            <span id="tx-hash" class="value mono text-break">{{ payment.tx_hash or "-" }}</span>
-          </div>
-        </div>
+      <div class="invoice-status">
+        <span class="hint">Confirmations: <strong id="confirmations">{{ payment.confirmations }}</strong>/<strong id="required-confirmations">{{ payment_data.required_confirmations if payment_data else 1 }}</strong></span>
+      </div>
 
-        <ol class="pay-steps">
-          <li>Откройте кошелек и выберите сеть, указанную в инвойсе.</li>
-          <li>Скопируйте сумму и адрес кнопками выше.</li>
-          <li>Отправьте перевод и дождитесь обновления статуса.</li>
-        </ol>
-      </aside>
-    </div>
+      <div class="confirm-meter">
+        <div id="confirm-meter-bar" class="confirm-meter-bar"></div>
+      </div>
+
+      <div class="hint-box">
+        <p class="hint-title">Важно</p>
+        <ul class="hint-list">
+          <li>Переводите только сумму из инвойса, без округлений.</li>
+          <li>Используйте только указанную сеть: {{ payment.network }}.</li>
+          <li>Статус обновится автоматически после подтверждений сети.</li>
+        </ul>
+      </div>
+    </article>
+
+    <aside class="panel panel-soft invoice-side">
+      <div class="invoice-meta">
+        <div class="invoice-meta-row">
+          <span class="label">Network</span>
+          <span class="value">{{ payment.network }}</span>
+        </div>
+        <div class="invoice-meta-row">
+          <span class="label">Destination Address</span>
+          <span id="wallet-address" class="value mono text-break">{{ payment.destination_address }}</span>
+        </div>
+        <div class="invoice-meta-row">
+          <span class="label">Expires At</span>
+          <span class="value">{{ expires_at|dt }}</span>
+        </div>
+        <div class="invoice-meta-row">
+          <span class="label">Tx Hash</span>
+          <span id="tx-hash" class="value mono text-break">{{ payment.tx_hash or "-" }}</span>
+        </div>
+        <div class="invoice-meta-row">
+          <span class="label">Payment ID</span>
+          <span class="value mono text-break">{{ payment.id }}</span>
+        </div>
+      </div>
+
+      <ol class="invoice-steps">
+        <li>Скопируйте сумму и адрес кнопками.</li>
+        <li>Сделайте перевод из своего кошелька.</li>
+        <li>Дождитесь обновления статуса на этой странице.</li>
+      </ol>
+    </aside>
   </section>
 
   <script>
@@ -64,19 +76,30 @@
       const txNode = document.getElementById("tx-hash");
       const confirmationsNode = document.getElementById("confirmations");
       const requiredNode = document.getElementById("required-confirmations");
+      const meterNode = document.getElementById("confirm-meter-bar");
       const walletNode = document.getElementById("wallet-address");
       const amountNode = document.getElementById("amount");
       const copyAddressBtn = document.getElementById("copy-address");
       const copyAmountBtn = document.getElementById("copy-amount");
 
+      const setProgress = (confirmations, required) => {
+        const req = Number(required || 1);
+        const conf = Number(confirmations || 0);
+        const percent = Math.max(0, Math.min(100, Math.round((conf / req) * 100)));
+        meterNode.style.width = percent + "%";
+      };
+
       const copyText = async (text, btn) => {
         try {
           await navigator.clipboard.writeText(text);
-          if (btn) {
-            const original = btn.textContent;
-            btn.textContent = "Скопировано";
-            setTimeout(() => { btn.textContent = original; }, 1200);
+          if (!btn) {
+            return;
           }
+          const original = btn.textContent;
+          btn.textContent = "Copied";
+          setTimeout(() => {
+            btn.textContent = original;
+          }, 1200);
         } catch (error) {
           console.warn("copy failed", error);
         }
@@ -93,22 +116,28 @@
             return;
           }
           const payload = await response.json();
+          const required = payload.required_confirmations || 1;
+          const confirmations = payload.confirmations || 0;
+
           statusNode.textContent = payload.status;
           applyStatusClass(payload.status);
           txNode.textContent = payload.tx_hash || "-";
-          confirmationsNode.textContent = payload.confirmations || 0;
-          requiredNode.textContent = payload.required_confirmations || 1;
+          confirmationsNode.textContent = confirmations;
+          requiredNode.textContent = required;
+          setProgress(confirmations, required);
         } catch (error) {
           console.warn("status refresh failed", error);
         }
       };
 
-      setInterval(fetchStatus, 8000);
+      setProgress(confirmationsNode.textContent, requiredNode.textContent);
       fetchStatus();
+      setInterval(fetchStatus, 8000);
 
       if (copyAddressBtn && walletNode) {
         copyAddressBtn.addEventListener("click", () => copyText(walletNode.textContent.trim(), copyAddressBtn));
       }
+
       if (copyAmountBtn && amountNode) {
         copyAmountBtn.addEventListener("click", () => copyText(amountNode.dataset.amount || amountNode.textContent.trim(), copyAmountBtn));
       }

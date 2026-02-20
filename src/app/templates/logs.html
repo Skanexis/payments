@@ -1,37 +1,45 @@
 {% extends "base.html" %}
 {% block content %}
+  <section class="page-head">
+    <div>
+      <h1 class="page-title">Logs</h1>
+      <p class="page-subtitle">Системный журнал бизнес-событий и диагностики.</p>
+    </div>
+  </section>
+
   <section class="panel">
-    <div class="section-head">
+    <div class="panel-head">
       <div>
-        <h1>Системные логи</h1>
-        <p class="hint">Центральный журнал бизнес-событий и диагностики.</p>
+        <h2 class="panel-title">Latest Events</h2>
+        <p class="panel-subtitle">До 300 последних записей.</p>
       </div>
     </div>
+
     <div class="table-wrap">
       <table>
         <thead>
-        <tr>
-          <th>Время</th>
-          <th>Уровень</th>
-          <th>Payment ID</th>
-          <th>Сообщение</th>
-          <th>Контекст</th>
-        </tr>
+          <tr>
+            <th>Time</th>
+            <th>Level</th>
+            <th>Payment ID</th>
+            <th>Message</th>
+            <th>Context</th>
+          </tr>
         </thead>
         <tbody>
-        {% for item in logs %}
-          <tr>
-            <td data-label="Время">{{ item.created_at|dt }}</td>
-            <td data-label="Уровень">{{ item.level }}</td>
-            <td data-label="Payment ID" class="mono">{{ item.payment_id or "-" }}</td>
-            <td data-label="Сообщение">{{ item.message }}</td>
-            <td data-label="Контекст" class="mono">{{ item.context_json or "-" }}</td>
-          </tr>
-        {% else %}
-          <tr>
-            <td class="empty-cell" colspan="5">Логи отсутствуют.</td>
-          </tr>
-        {% endfor %}
+          {% for item in logs %}
+            <tr>
+              <td data-label="Time">{{ item.created_at|dt }}</td>
+              <td data-label="Level">{{ item.level }}</td>
+              <td data-label="Payment ID" class="mono">{{ item.payment_id or "-" }}</td>
+              <td data-label="Message">{{ item.message }}</td>
+              <td data-label="Context" class="mono">{{ item.context_json or "-" }}</td>
+            </tr>
+          {% else %}
+            <tr>
+              <td class="empty-cell" colspan="5">Логи отсутствуют.</td>
+            </tr>
+          {% endfor %}
         </tbody>
       </table>
     </div>

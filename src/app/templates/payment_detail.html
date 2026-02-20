@@ -1,83 +1,126 @@
 {% extends "base.html" %}
 {% block content %}
-  <section class="panel">
-    <div class="section-head">
-      <div>
-        <h1>Платеж {{ payment.id }}</h1>
-        <p class="hint">Карточка платежа, статусы подтверждения и управленческие действия.</p>
+  <section class="page-head">
+    <div>
+      <h1 class="page-title">Payment {{ payment.id[:8] }}</h1>
+      <p class="page-subtitle">Полная карточка платежа, логи и ручные действия администратора.</p>
+    </div>
+    <span class="status-pill status-{{ payment.status }}">{{ payment.status }}</span>
+  </section>
+
+  {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+  {% endif %}
+  {% if info %}
+    <div class="alert alert-success">{{ info }}</div>
+  {% endif %}
+
+  <section class="split-grid">
+    <article class="panel">
+      <h2 class="panel-title">Payment Details</h2>
+      <div class="detail-list">
+        <div class="detail-item">
+          <div class="detail-key">Title</div>
+          <div class="detail-value">{{ payment.title }}</div>
+        </div>
+        <div class="detail-item">
+          <div class="detail-key">Network</div>
+          <div class="detail-value">{{ payment.network }}</div>
+        </div>
+        <div class="detail-item">
+          <div class="detail-key">Amount</div>
+          <div class="detail-value mono">{{ amount_text }} {{ payment.asset_symbol }}</div>
+        </div>
+        <div class="detail-item">
+          <div class="detail-key">Destination Address</div>
+          <div class="detail-value mono text-break">{{ payment.destination_address }}</div>
+        </div>
+        <div class="detail-item">
+          <div class="detail-key">Expires At</div>
+          <div class="detail-value">{{ expires_at|dt }}</div>
+        </div>
+        <div class="detail-item">
+          <div class="detail-key">Tx Hash</div>
+          <div class="detail-value mono text-break">{{ payment.tx_hash or "-" }}</div>
+        </div>
+        <div class="detail-item">
+          <div class="detail-key">Confirmations</div>
+          <div class="detail-value">{{ payment.confirmations }} / {{ required_confirmations }}</div>
+        </div>
+        <div class="detail-item">
+          <div class="detail-key">Payment Link</div>
+          <div class="detail-value"><a class="mono text-break" href="{{ pay_url }}" target="_blank">{{ pay_url }}</a></div>
+        </div>
       </div>
-    </div>
-    {% if error %}
-      <p class="error">{{ error }}</p>
-    {% endif %}
-    {% if info %}
-      <p class="ok">{{ info }}</p>
-    {% endif %}
-    <div class="kvs">
-      <div class="key">Статус</div>
-      <div class="val"><span class="status-pill status-{{ payment.status }}">{{ payment.status }}</span></div>
-      <div class="key">Название</div>
-      <div class="val">{{ payment.title }}</div>
-      <div class="key">Сеть</div>
-      <div class="val">{{ payment.network }}</div>
-      <div class="key">Сумма к оплате</div>
-      <div class="val mono">{{ amount_text }} {{ payment.asset_symbol }}</div>
-      <div class="key">Адрес</div>
-      <div class="val mono text-break">{{ payment.destination_address }}</div>
-      <div class="key">Срок до</div>
-      <div class="val">{{ expires_at|dt }}</div>
-      <div class="key">Tx hash</div>
-      <div class="val mono text-break">{{ payment.tx_hash or "-" }}</div>
-      <div class="key">Подтверждения</div>
-      <div class="val">{{ payment.confirmations }} / {{ required_confirmations }}</div>
-      <div class="key">Ссылка оплаты</div>
-      <div class="val"><a class="mono text-break" href="{{ pay_url }}" target="_blank">{{ pay_url }}</a></div>
-    </div>
-    {% if payment.description %}
-      <p><strong>Описание:</strong> {{ payment.description }}</p>
-    {% endif %}
-    <div class="actions">
-      {% if payment.status == "pending" %}
-        <form method="post" action="/admin/payments/{{ payment.id }}/cancel">
-          <button class="btn btn-danger" type="submit">Отменить</button>
-        </form>
+
+      {% if payment.description %}
+        <div class="hint-box">
+          <p class="hint-title">Description</p>
+          <div class="detail-value">{{ payment.description }}</div>
+        </div>
       {% endif %}
-      {% if payment.status in ["pending", "confirming"] %}
-        <form method="post" action="/admin/payments/{{ payment.id }}/mark-paid" class="inline-form">
-          <input type="text" name="manual_tx_hash" placeholder="manual tx hash (опционально)">
-          <button class="btn btn-outline" type="submit">Отметить как paid</button>
-        </form>
-      {% endif %}
-    </div>
+    </article>
+
+    <aside class="panel panel-soft">
+      <h2 class="panel-title">Actions</h2>
+      <p class="panel-subtitle">Ручные операции доступны только для pending/confirming.</p>
+
+      <div class="actions">
+        {% if payment.status == "pending" %}
+          <form method="post" action="/admin/payments/{{ payment.id }}/cancel">
+            <button class="btn btn-danger" type="submit">Cancel Payment</button>
+          </form>
+        {% endif %}
+
+        {% if payment.status in ["pending", "confirming"] %}
+          <form method="post" action="/admin/payments/{{ payment.id }}/mark-paid" class="inline-form">
+            <input type="text" name="manual_tx_hash" placeholder="manual tx hash (optional)">
+            <button class="btn btn-outline" type="submit">Mark as Paid</button>
+          </form>
+        {% endif %}
+      </div>
+
+      <div class="hint-box">
+        <p class="hint-title">Safety</p>
+        <ul class="hint-list">
+          <li>Перед ручным `paid` проверяйте tx в блокчейн-эксплорере.</li>
+          <li>Сверяйте сеть, сумму и адрес назначения.</li>
+        </ul>
+      </div>
+    </aside>
   </section>
 
   <section class="panel">
-    <div class="section-head">
-      <h2>Логи платежа</h2>
+    <div class="panel-head">
+      <div>
+        <h2 class="panel-title">Payment Logs</h2>
+        <p class="panel-subtitle">Хронология событий конкретного платежа.</p>
+      </div>
     </div>
+
     <div class="table-wrap">
       <table>
         <thead>
-        <tr>
-          <th>Время</th>
-          <th>Уровень</th>
-          <th>Сообщение</th>
-          <th>Контекст</th>
-        </tr>
+          <tr>
+            <th>Time</th>
+            <th>Level</th>
+            <th>Message</th>
+            <th>Context</th>
+          </tr>
         </thead>
         <tbody>
-        {% for item in logs %}
-          <tr>
-            <td data-label="Время">{{ item.created_at|dt }}</td>
-            <td data-label="Уровень">{{ item.level }}</td>
-            <td data-label="Сообщение">{{ item.message }}</td>
-            <td data-label="Контекст" class="mono">{{ item.context_json or "-" }}</td>
-          </tr>
-        {% else %}
-          <tr>
-            <td class="empty-cell" colspan="4">Логи отсутствуют.</td>
-          </tr>
-        {% endfor %}
+          {% for item in logs %}
+            <tr>
+              <td data-label="Time">{{ item.created_at|dt }}</td>
+              <td data-label="Level">{{ item.level }}</td>
+              <td data-label="Message">{{ item.message }}</td>
+              <td data-label="Context" class="mono">{{ item.context_json or "-" }}</td>
+            </tr>
+          {% else %}
+            <tr>
+              <td class="empty-cell" colspan="4">Логи отсутствуют.</td>
+            </tr>
+          {% endfor %}
         </tbody>
       </table>
     </div>
