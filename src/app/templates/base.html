@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title or "Crypto Pay" }}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="shell">
+    <div class="topbar">
+      <div class="brand">Crypto Payment Console</div>
+      <div class="menu">
+        {% if admin_user %}
+          <a href="/admin">Платежи</a>
+          <a href="/admin/payments/new">Создать</a>
+          <a href="/admin/transfers">Транзакции</a>
+          <a href="/admin/logs">Логи</a>
+          <span>{{ admin_user.username }}</span>
+          <a href="/admin/logout">Выйти</a>
+        {% else %}
+          <a href="/admin/login">Админка</a>
+        {% endif %}
+      </div>
+    </div>
+    {% block content %}{% endblock %}
+  </div>
+</body>
+</html>

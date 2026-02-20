@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="panel">
+    <h1>Наблюдаемые транзакции</h1>
+    <p class="hint">Сюда попадают входящие переводы, включая нераспознанные. Это основной экран для разбора спорных случаев.</p>
+    <table>
+      <thead>
+      <tr>
+        <th>Сеть</th>
+        <th>Tx hash</th>
+        <th>Сумма</th>
+        <th>Подтв.</th>
+        <th>Статус</th>
+        <th>Payment</th>
+        <th>Последнее обновление</th>
+      </tr>
+      </thead>
+      <tbody>
+      {% for t in transfers %}
+        <tr>
+          <td>{{ t.network }}</td>
+          <td class="mono">{{ t.tx_hash }}</td>
+          <td class="mono">{{ t.amount|amt if t.amount else "-" }}</td>
+          <td>{{ t.confirmations }}</td>
+          <td><span class="status-pill status-{{ t.match_status }}">{{ t.match_status }}</span></td>
+          <td class="mono">
+            {% if t.matched_payment_id %}
+              <a href="/admin/payments/{{ t.matched_payment_id }}">{{ t.matched_payment_id[:8] }}</a>
+            {% else %}
+              -
+            {% endif %}
+          </td>
+          <td>{{ t.last_seen_at|dt }}</td>
+        </tr>
+      {% else %}
+        <tr>
+          <td colspan="7">Транзакций пока нет.</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endblock %}
+

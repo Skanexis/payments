@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="panel">
+    <h1>Платеж {{ payment.id }}</h1>
+    {% if error %}
+      <p class="error">{{ error }}</p>
+    {% endif %}
+    {% if info %}
+      <p class="ok">{{ info }}</p>
+    {% endif %}
+    <div class="kvs">
+      <div class="key">Статус</div>
+      <div class="val"><span class="status-pill status-{{ payment.status }}">{{ payment.status }}</span></div>
+      <div class="key">Название</div>
+      <div class="val">{{ payment.title }}</div>
+      <div class="key">Сеть</div>
+      <div class="val">{{ payment.network }}</div>
+      <div class="key">Сумма к оплате</div>
+      <div class="val">{{ amount_text }} {{ payment.asset_symbol }}</div>
+      <div class="key">Адрес</div>
+      <div class="val">{{ payment.destination_address }}</div>
+      <div class="key">Срок до</div>
+      <div class="val">{{ expires_at|dt }}</div>
+      <div class="key">Tx hash</div>
+      <div class="val">{{ payment.tx_hash or "-" }}</div>
+      <div class="key">Подтверждения</div>
+      <div class="val">{{ payment.confirmations }} / {{ required_confirmations }}</div>
+      <div class="key">Ссылка оплаты</div>
+      <div class="val"><a href="{{ pay_url }}" target="_blank">{{ pay_url }}</a></div>
+    </div>
+    {% if payment.description %}
+      <p><strong>Описание:</strong> {{ payment.description }}</p>
+    {% endif %}
+    <div class="actions">
+      {% if payment.status == "pending" %}
+        <form method="post" action="/admin/payments/{{ payment.id }}/cancel">
+          <button class="btn btn-danger" type="submit">Отменить</button>
+        </form>
+      {% endif %}
+      {% if payment.status in ["pending", "confirming"] %}
+        <form method="post" action="/admin/payments/{{ payment.id }}/mark-paid" style="display:flex; gap:.45rem; align-items:center;">
+          <input type="text" name="manual_tx_hash" placeholder="manual tx hash (опционально)">
+          <button class="btn btn-outline" type="submit">Отметить как paid</button>
+        </form>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Логи платежа</h2>
+    <table>
+      <thead>
+      <tr>
+        <th>Время</th>
+        <th>Уровень</th>
+        <th>Сообщение</th>
+        <th>Контекст</th>
+      </tr>
+      </thead>
+      <tbody>
+      {% for item in logs %}
+        <tr>
+          <td>{{ item.created_at|dt }}</td>
+          <td>{{ item.level }}</td>
+          <td>{{ item.message }}</td>
+          <td class="mono">{{ item.context_json or "-" }}</td>
+        </tr>
+      {% else %}
+        <tr>
+          <td colspan="4">Логи отсутствуют.</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endblock %}

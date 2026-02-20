@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="panel">
+    <h1>Системные логи</h1>
+    <table>
+      <thead>
+      <tr>
+        <th>Время</th>
+        <th>Уровень</th>
+        <th>Payment ID</th>
+        <th>Сообщение</th>
+        <th>Контекст</th>
+      </tr>
+      </thead>
+      <tbody>
+      {% for item in logs %}
+        <tr>
+          <td>{{ item.created_at|dt }}</td>
+          <td>{{ item.level }}</td>
+          <td class="mono">{{ item.payment_id or "-" }}</td>
+          <td>{{ item.message }}</td>
+          <td class="mono">{{ item.context_json or "-" }}</td>
+        </tr>
+      {% else %}
+        <tr>
+          <td colspan="5">Логи отсутствуют.</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endblock %}
+
