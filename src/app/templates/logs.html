@@ -23,6 +23,22 @@
   </section>
 
   <section class="panel">
+    <div class="log-toolbar">
+      <div class="range-switch" role="tablist" aria-label="Log level filter">
+        <button type="button" class="range-btn active" data-log-level="all">All</button>
+        <button type="button" class="range-btn" data-log-level="info">Info</button>
+        <button type="button" class="range-btn" data-log-level="warning">Warning</button>
+        <button type="button" class="range-btn" data-log-level="error">Error</button>
+      </div>
+      <label class="log-search">
+        <span class="field-note">Search</span>
+        <input id="log-search-input" type="text" placeholder="event, tx hash, ip, username...">
+      </label>
+      <span id="log-visible-count" class="subline">Showing {{ log_total_count }} events</span>
+    </div>
+  </section>
+
+  <section class="panel">
     <div class="panel-head">
       <div>
         <h2 class="panel-title">Latest Events</h2>
@@ -43,10 +59,10 @@
         </thead>
         <tbody>
           {% for row in log_rows %}
-            <tr>
+            <tr class="log-row" data-level="{{ row.level_key }}">
               <td data-label="Time">{{ row.item.created_at|dt }}</td>
               <td data-label="Level"><span class="log-pill log-{{ row.level_tone }}">{{ row.level_label }}</span></td>
-              <td data-label="Event Code" class="mono">{{ row.event_code }}</td>
+              <td data-label="Event Code"><span class="event-code mono">{{ row.event_code }}</span></td>
               <td data-label="Message">
                 <div>{{ row.item.message }}</div>
                 {% if row.reason %}
@@ -60,10 +76,14 @@
                 {% endif %}
               </td>
               <td data-label="Details">
-                {% if row.summary %}
-                  <div class="context-list">
-                    {% for line in row.summary %}
-                      <span class="context-pill mono">{{ line }}</span>
+                {% if row.details %}
+                  <div class="context-list detail-list-grid">
+                    {% for detail in row.details %}
+                      <span class="context-pill detail-pill icon-{{ detail.icon }}">
+                        <span class="pill-icon" aria-hidden="true"></span>
+                        <span class="pill-label">{{ detail.label }}</span>
+                        <span class="pill-value mono">{{ detail.value }}</span>
+                      </span>
                     {% endfor %}
                   </div>
                 {% else %}
@@ -80,4 +100,61 @@
       </table>
     </div>
   </section>
+
+  <script>
+    (function () {
+      const rows = Array.from(document.querySelectorAll(".log-row"));
+      const levelButtons = Array.from(document.querySelectorAll("[data-log-level]"));
+      const searchInput = document.getElementById("log-search-input");
+      const visibleCount = document.getElementById("log-visible-count");
+      if (!rows.length || !levelButtons.length) {
+        return;
+      }
+
+      let level = "all";
+      let query = "";
+
+      const updateCount = (visible) => {
+        if (!visibleCount) {
+          return;
+        }
+        visibleCount.textContent = "Showing " + visible + " of " + rows.length + " events";
+      };
+
+      const applyFilters = () => {
+        let visible = 0;
+        for (const row of rows) {
+          const rowLevel = row.dataset.level || "";
+          const text = row.textContent ? row.textContent.toLowerCase() : "";
+          const levelMatch = level === "all" || rowLevel === level;
+          const queryMatch = !query || text.includes(query);
+          const show = levelMatch && queryMatch;
+          row.style.display = show ? "" : "none";
+          if (show) {
+            visible += 1;
+          }
+        }
+        updateCount(visible);
+      };
+
+      for (const button of levelButtons) {
+        button.addEventListener("click", function () {
+          level = button.dataset.logLevel || "all";
+          for (const item of levelButtons) {
+            item.classList.toggle("active", item === button);
+          }
+          applyFilters();
+        });
+      }
+
+      if (searchInput) {
+        searchInput.addEventListener("input", function () {
+          query = (searchInput.value || "").trim().toLowerCase();
+          applyFilters();
+        });
+      }
+
+      applyFilters();
+    })();
+  </script>
 {% endblock %}

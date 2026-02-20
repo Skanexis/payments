@@ -91,29 +91,39 @@
     <article class="panel chart-card">
       <div class="panel-head compact">
         <div>
-          <h2 class="panel-title">7-Day Activity</h2>
-          <p class="panel-subtitle">Количество новых инвойсов за последние 7 дней.</p>
+          <h2 class="panel-title">Activity Timeline</h2>
+          <p class="panel-subtitle">Интерактивная динамика создания инвойсов с переключением окна времени.</p>
+        </div>
+        <div class="range-switch" role="tablist" aria-label="Activity time range">
+          <button type="button" class="range-btn" data-range="24h">24h</button>
+          <button type="button" class="range-btn active" data-range="7d">7d</button>
+          <button type="button" class="range-btn" data-range="30d">30d</button>
         </div>
       </div>
 
       <div class="line-summary">
         <div class="line-summary-item">
-          <span class="line-summary-label">Today</span>
+          <span class="line-summary-label">Current Bucket</span>
           <span id="today-count" class="line-summary-value">0</span>
         </div>
         <div class="line-summary-item">
-          <span class="line-summary-label">7 Days</span>
+          <span class="line-summary-label">Window Total</span>
           <span id="week-count" class="line-summary-value">0</span>
+        </div>
+        <div class="line-summary-item">
+          <span class="line-summary-label">Peak Bucket</span>
+          <span id="peak-count" class="line-summary-value">0</span>
         </div>
       </div>
 
       <div class="line-chart-shell">
-        <svg id="activity-chart" class="line-chart" viewBox="0 0 360 170" data-created="{% for payment in payments %}{{ payment.created_at.isoformat() }}{% if not loop.last %},{% endif %}{% endfor %}">
+        <svg id="activity-chart" class="line-chart" viewBox="0 0 360 170" data-now="{{ now.isoformat() if now else '' }}" data-created="{% for payment in chart_payments %}{{ payment.created_at.isoformat() }}{% if not loop.last %},{% endif %}{% endfor %}">
           <g class="line-grid"></g>
           <polygon class="line-area" points=""></polygon>
           <polyline class="line-path" points=""></polyline>
           <g class="line-dots"></g>
         </svg>
+        <div id="activity-tooltip" class="line-tooltip" hidden></div>
         <div id="activity-labels" class="line-labels"></div>
       </div>
     </article>
@@ -296,8 +306,10 @@
       if (!chartNode) {
         return;
       }
-
+      const rangeButtons = Array.from(document.querySelectorAll("[data-range]"));
+      const tooltipNode = document.getElementById("activity-tooltip");
       const raw = chartNode.dataset.created || "";
+      const nowRaw = chartNode.dataset.now || "";
       const createdDates = raw
         .split(",")
         .map((item) => item.trim())
@@ -308,100 +320,195 @@
         })
         .filter((date) => !Number.isNaN(date.getTime()));
 
-      const now = new Date();
-      const dayKeys = [];
-      const dayLabels = [];
-      const dayCounts = [];
+      const now = nowRaw ? new Date(nowRaw) : new Date();
+      const ranges = {
+        "24h": { bucketMinutes: 60, bucketCount: 24 },
+        "7d": { bucketMinutes: 1440, bucketCount: 7 },
+        "30d": { bucketMinutes: 1440, bucketCount: 30 }
+      };
+      let activeRange = "7d";
 
-      for (let i = 6; i >= 0; i -= 1) {
-        const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - i));
-        dayKeys.push(d.toISOString().slice(0, 10));
-        dayLabels.push(d.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit" }));
-        dayCounts.push(0);
-      }
+      const fmtHour = (d) => d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+      const fmtDay = (d) => d.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit" });
+      const startOfHourUtc = (d) => new Date(Date.UTC(
+        d.getUTCFullYear(),
+        d.getUTCMonth(),
+        d.getUTCDate(),
+        d.getUTCHours(),
+        0,
+        0,
+        0
+      ));
+      const startOfDayUtc = (d) => new Date(Date.UTC(
+        d.getUTCFullYear(),
+        d.getUTCMonth(),
+        d.getUTCDate(),
+        0,
+        0,
+        0,
+        0
+      ));
 
-      for (const date of createdDates) {
-        const key = date.toISOString().slice(0, 10);
-        const idx = dayKeys.indexOf(key);
-        if (idx !== -1) {
-          dayCounts[idx] += 1;
+      const buildSeries = (rangeKey) => {
+        const cfg = ranges[rangeKey] || ranges["7d"];
+        const bucketMs = cfg.bucketMinutes * 60000;
+        const endStart = cfg.bucketMinutes === 60 ? startOfHourUtc(now) : startOfDayUtc(now);
+        const coverageStart = new Date(endStart.getTime() - ((cfg.bucketCount - 1) * bucketMs));
+        const coverageEnd = new Date(endStart.getTime() + bucketMs);
+        const labels = [];
+        const counts = Array.from({ length: cfg.bucketCount }, () => 0);
+
+        for (let i = 0; i < cfg.bucketCount; i += 1) {
+          const bucketStart = new Date(coverageStart.getTime() + (i * bucketMs));
+          labels.push(cfg.bucketMinutes === 60 ? fmtHour(bucketStart) : fmtDay(bucketStart));
         }
-      }
 
-      const sum7 = dayCounts.reduce((acc, value) => acc + value, 0);
-      const today = dayCounts[dayCounts.length - 1] || 0;
-      const todayNode = document.getElementById("today-count");
-      const weekNode = document.getElementById("week-count");
-      if (todayNode) {
-        todayNode.textContent = String(today);
-      }
-      if (weekNode) {
-        weekNode.textContent = String(sum7);
-      }
+        for (const ts of createdDates) {
+          const time = ts.getTime();
+          if (time < coverageStart.getTime() || time >= coverageEnd.getTime()) {
+            continue;
+          }
+          const idx = Math.floor((time - coverageStart.getTime()) / bucketMs);
+          if (idx >= 0 && idx < counts.length) {
+            counts[idx] += 1;
+          }
+        }
 
-      const labelsNode = document.getElementById("activity-labels");
-      if (labelsNode) {
-        labelsNode.innerHTML = dayLabels.map((label) => "<span>" + label + "</span>").join("");
-      }
+        return { counts, labels };
+      };
 
-      const max = Math.max(...dayCounts, 1);
-      const width = 360;
-      const height = 170;
-      const left = 14;
-      const right = 14;
-      const top = 12;
-      const bottom = 28;
-      const usableWidth = width - left - right;
-      const usableHeight = height - top - bottom;
+      const renderSeries = (series) => {
+        const counts = series.counts;
+        const labels = series.labels;
+        const currentBucket = counts[counts.length - 1] || 0;
+        const windowTotal = counts.reduce((acc, value) => acc + value, 0);
+        const peakBucket = Math.max(...counts, 0);
+        const todayNode = document.getElementById("today-count");
+        const weekNode = document.getElementById("week-count");
+        const peakNode = document.getElementById("peak-count");
+        if (todayNode) {
+          todayNode.textContent = String(currentBucket);
+        }
+        if (weekNode) {
+          weekNode.textContent = String(windowTotal);
+        }
+        if (peakNode) {
+          peakNode.textContent = String(peakBucket);
+        }
+        if (tooltipNode) {
+          tooltipNode.hidden = true;
+        }
 
-      const points = dayCounts.map((count, idx) => {
-        const x = left + (idx * usableWidth) / (dayCounts.length - 1);
-        const y = top + usableHeight - (count / max) * usableHeight;
-        return { x, y };
-      });
+        const labelsNode = document.getElementById("activity-labels");
+        if (labelsNode) {
+          const step = labels.length > 12 ? Math.ceil(labels.length / 8) : 1;
+          labelsNode.innerHTML = labels
+            .map((label, idx) => {
+              const visible = idx % step === 0 || idx === labels.length - 1;
+              return "<span class='" + (visible ? "" : "label-muted") + "'>" + (visible ? label : " ") + "</span>";
+            })
+            .join("");
+        }
 
-      const gridNode = chartNode.querySelector(".line-grid");
-      if (gridNode) {
-        gridNode.innerHTML = "";
-        const xmlns = "http://www.w3.org/2000/svg";
-        [0.25, 0.5, 0.75, 1].forEach((level) => {
-          const y = top + usableHeight - usableHeight * level;
-          const line = document.createElementNS(xmlns, "line");
-          line.setAttribute("x1", String(left));
-          line.setAttribute("x2", String(left + usableWidth));
-          line.setAttribute("y1", String(y));
-          line.setAttribute("y2", String(y));
-          gridNode.appendChild(line);
+        const max = Math.max(...counts, 1);
+        const width = 360;
+        const height = 170;
+        const left = 14;
+        const right = 14;
+        const top = 12;
+        const bottom = 28;
+        const usableWidth = width - left - right;
+        const usableHeight = height - top - bottom;
+
+        const points = counts.map((count, idx) => {
+          const x = left + (idx * usableWidth) / Math.max(1, counts.length - 1);
+          const y = top + usableHeight - (count / max) * usableHeight;
+          return { x, y };
+        });
+
+        const gridNode = chartNode.querySelector(".line-grid");
+        if (gridNode) {
+          gridNode.innerHTML = "";
+          const xmlns = "http://www.w3.org/2000/svg";
+          [0, 0.25, 0.5, 0.75, 1].forEach((level) => {
+            const y = top + usableHeight - usableHeight * level;
+            const line = document.createElementNS(xmlns, "line");
+            line.setAttribute("x1", String(left));
+            line.setAttribute("x2", String(left + usableWidth));
+            line.setAttribute("y1", String(y));
+            line.setAttribute("y2", String(y));
+            gridNode.appendChild(line);
+          });
+        }
+
+        const areaNode = chartNode.querySelector(".line-area");
+        if (areaNode) {
+          const areaPoints = [
+            left + "," + (top + usableHeight),
+            ...points.map((point) => point.x + "," + point.y),
+            left + usableWidth + "," + (top + usableHeight),
+          ];
+          areaNode.setAttribute("points", areaPoints.join(" "));
+        }
+
+        const pathNode = chartNode.querySelector(".line-path");
+        if (pathNode) {
+          pathNode.setAttribute("points", points.map((point) => point.x + "," + point.y).join(" "));
+        }
+
+        const dotsNode = chartNode.querySelector(".line-dots");
+        if (dotsNode) {
+          dotsNode.innerHTML = "";
+          const xmlns = "http://www.w3.org/2000/svg";
+          points.forEach((point, idx) => {
+            const dot = document.createElementNS(xmlns, "circle");
+            dot.setAttribute("cx", String(point.x));
+            dot.setAttribute("cy", String(point.y));
+            dot.setAttribute("r", "3.5");
+            dot.dataset.count = String(counts[idx]);
+            dot.dataset.label = labels[idx];
+            dotsNode.appendChild(dot);
+          });
+        }
+
+        const dots = Array.from(chartNode.querySelectorAll(".line-dots circle"));
+        dots.forEach((dot) => {
+          dot.addEventListener("mouseenter", function (event) {
+            if (!tooltipNode) {
+              return;
+            }
+            const label = dot.dataset.label || "";
+            const count = dot.dataset.count || "0";
+            tooltipNode.textContent = label + " - " + count;
+            tooltipNode.hidden = false;
+            const chartRect = chartNode.getBoundingClientRect();
+            const targetRect = event.target.getBoundingClientRect();
+            tooltipNode.style.left = (targetRect.left - chartRect.left + 8) + "px";
+            tooltipNode.style.top = (targetRect.top - chartRect.top - 8) + "px";
+          });
+          dot.addEventListener("mouseleave", function () {
+            if (tooltipNode) {
+              tooltipNode.hidden = true;
+            }
+          });
+        });
+      };
+
+      const applyRange = (rangeKey) => {
+        activeRange = ranges[rangeKey] ? rangeKey : "7d";
+        for (const button of rangeButtons) {
+          button.classList.toggle("active", button.dataset.range === activeRange);
+        }
+        renderSeries(buildSeries(activeRange));
+      };
+
+      for (const button of rangeButtons) {
+        button.addEventListener("click", function () {
+          applyRange(button.dataset.range || "7d");
         });
       }
 
-      const areaNode = chartNode.querySelector(".line-area");
-      if (areaNode) {
-        const areaPoints = [
-          left + "," + (top + usableHeight),
-          ...points.map((point) => point.x + "," + point.y),
-          left + usableWidth + "," + (top + usableHeight),
-        ];
-        areaNode.setAttribute("points", areaPoints.join(" "));
-      }
-
-      const pathNode = chartNode.querySelector(".line-path");
-      if (pathNode) {
-        pathNode.setAttribute("points", points.map((point) => point.x + "," + point.y).join(" "));
-      }
-
-      const dotsNode = chartNode.querySelector(".line-dots");
-      if (dotsNode) {
-        dotsNode.innerHTML = "";
-        const xmlns = "http://www.w3.org/2000/svg";
-        points.forEach((point) => {
-          const dot = document.createElementNS(xmlns, "circle");
-          dot.setAttribute("cx", String(point.x));
-          dot.setAttribute("cy", String(point.y));
-          dot.setAttribute("r", "3.5");
-          dotsNode.appendChild(dot);
-        });
-      }
+      applyRange(activeRange);
     })();
   </script>
 {% endblock %}

@@ -90,6 +90,23 @@ LOG_LEVEL_META: dict[str, dict[str, str]] = {
     "debug": {"label": "Debug", "tone": "muted"},
 }
 
+LOG_PARAM_META: dict[str, dict[str, str]] = {
+    "network": {"label": "Network", "icon": "network"},
+    "tx_hash": {"label": "TX", "icon": "tx"},
+    "amount": {"label": "Amount", "icon": "amount"},
+    "confirmations": {"label": "Conf", "icon": "confirmations"},
+    "required_confirmations": {"label": "Need", "icon": "required"},
+    "ip": {"label": "IP", "icon": "ip"},
+    "username": {"label": "User", "icon": "user"},
+    "candidate_count": {"label": "Candidates", "icon": "count"},
+    "error_type": {"label": "Err Type", "icon": "error"},
+    "error_text": {"label": "Err Text", "icon": "message"},
+    "quote_amount": {"label": "Quote", "icon": "quote"},
+    "btc_usd_rate": {"label": "Rate", "icon": "rate"},
+    "rate_source": {"label": "Source", "icon": "source"},
+    "payment_id": {"label": "Payment", "icon": "payment"},
+}
+
 CSRF_SESSION_KEY = "csrf_token"
 _login_attempts: dict[str, list[datetime]] = defaultdict(list)
 _login_attempts_lock = Lock()
@@ -394,33 +411,75 @@ def _build_log_rows(logs: list[PaymentLog]) -> list[dict[str, Any]]:
         reason = str(context.get("reason") or context.get("match_status") or "")
         reason_description = str(context.get("reason_description") or "")
 
-        summary_parts: list[str] = []
-        for key in (
+        details: list[dict[str, str]] = []
+        ordered_keys = (
             "network",
             "tx_hash",
             "amount",
             "confirmations",
             "required_confirmations",
+            "quote_amount",
+            "btc_usd_rate",
+            "rate_source",
             "ip",
             "username",
             "candidate_count",
             "error_type",
             "error_text",
-        ):
+        )
+        used_keys: set[str] = set()
+
+        for key in ordered_keys:
             value = context.get(key)
             if value is None or value == "":
                 continue
-            summary_parts.append(f"{key}: {value}")
+            meta = LOG_PARAM_META.get(key, {"label": key.replace("_", " ").title(), "icon": "meta"})
+            details.append(
+                {
+                    "key": key,
+                    "label": meta["label"],
+                    "icon": meta["icon"],
+                    "value": str(value),
+                }
+            )
+            used_keys.add(key)
+
+        for key, value in context.items():
+            key_text = str(key)
+            if key_text in used_keys or key_text in ("event_code", "reason", "reason_description"):
+                continue
+            if value is None or value == "":
+                continue
+            meta = LOG_PARAM_META.get(key_text, {"label": key_text.replace("_", " ").title(), "icon": "meta"})
+            details.append(
+                {
+                    "key": key_text,
+                    "label": meta["label"],
+                    "icon": meta["icon"],
+                    "value": str(value),
+                }
+            )
+
+        if item.payment_id:
+            details.append(
+                {
+                    "key": "payment_id",
+                    "label": "Payment",
+                    "icon": "payment",
+                    "value": item.payment_id[:8],
+                }
+            )
 
         rows.append(
             {
                 "item": item,
+                "level_key": level_key,
                 "level_label": level_meta["label"],
                 "level_tone": level_meta["tone"],
                 "event_code": event_code,
                 "reason": reason,
                 "reason_description": reason_description,
-                "summary": summary_parts,
+                "details": details,
             }
         )
     return rows
@@ -590,6 +649,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
             stats_paid=stats_paid,
             stats_confirming=stats_confirming,
             enterprise=enterprise,
+            chart_payments=payments_for_stats,
             now=utcnow(),
         ),
     )

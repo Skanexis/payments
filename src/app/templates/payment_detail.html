@@ -144,10 +144,14 @@
                 {% endif %}
               </td>
               <td data-label="Details">
-                {% if row.summary %}
-                  <div class="context-list">
-                    {% for line in row.summary %}
-                      <span class="context-pill mono">{{ line }}</span>
+                {% if row.details %}
+                  <div class="context-list detail-list-grid">
+                    {% for detail in row.details %}
+                      <span class="context-pill detail-pill icon-{{ detail.icon }}">
+                        <span class="pill-icon" aria-hidden="true"></span>
+                        <span class="pill-label">{{ detail.label }}</span>
+                        <span class="pill-value mono">{{ detail.value }}</span>
+                      </span>
                     {% endfor %}
                   </div>
                 {% else %}
