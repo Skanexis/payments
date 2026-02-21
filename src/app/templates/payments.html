@@ -21,7 +21,7 @@
     <div class="panel-head">
       <div>
         <h2 class="panel-title">Template Builder</h2>
-        <p class="panel-subtitle">Добавьте новый шаблон быстрых платежей. Лимит: {{ quick_template_limit }} шаблонов.</p>
+        <p class="panel-subtitle">Добавьте новый шаблон быстрых платежей в USD. Быстрый выпуск поддерживает и USDT, и BTC.</p>
       </div>
     </div>
 
@@ -43,7 +43,7 @@
           <input type="number" name="ttl_minutes" min="1" max="1440" value="{{ default_template_ttl }}" required>
         </label>
         <label class="field">
-          <span class="field-label">USDT Network (default)</span>
+          <span class="field-label">USDT Network (for USDT invoices)</span>
           <select name="usdt_network" required>
             {% for option in usdt_network_options %}
               <option value="{{ option.code }}" {% if option.code == default_template_usdt_network %}selected{% endif %}>
@@ -51,6 +51,7 @@
               </option>
             {% endfor %}
           </select>
+          <span class="field-note">BTC всегда доступен в quick create и использует сеть Bitcoin [btc].</span>
         </label>
       </div>
       <label class="field">
@@ -103,18 +104,42 @@
           <div class="form-grid">
             <label class="field">
               <span class="field-label">Currency</span>
-              <select name="currency" data-currency-select {% if not template.is_active %}disabled{% endif %}>
-                <option value="USDT">USDT</option>
-                <option value="BTC">BTC</option>
-              </select>
+              <div class="quick-currency-row">
+                <label class="quick-currency-pill">
+                  <input
+                    type="radio"
+                    name="currency"
+                    value="USDT"
+                    data-currency-input
+                    checked
+                    {% if not template.is_active %}disabled{% endif %}
+                  >
+                  <span>USDT</span>
+                </label>
+                <label class="quick-currency-pill">
+                  <input
+                    type="radio"
+                    name="currency"
+                    value="BTC"
+                    data-currency-input
+                    {% if not template.is_active %}disabled{% endif %}
+                  >
+                  <span>BTC</span>
+                </label>
+              </div>
             </label>
             <label class="field">
               <span class="field-label">Network</span>
-              <select name="network" data-network-select {% if not template.is_active %}disabled{% endif %}>
-                <option value="{{ template.usdt_network }}" data-currency="USDT">
+              <select
+                name="network"
+                data-network-select
+                data-initial-disabled="{% if template.is_active %}0{% else %}1{% endif %}"
+                {% if not template.is_active %}disabled{% endif %}
+              >
+                <option value="{{ template.usdt_network }}">
                   {{ usdt_label }} [{{ template.usdt_network }}]
                 </option>
-                <option value="btc" data-currency="BTC">
+                <option value="btc">
                   Bitcoin (BTC) [btc]
                 </option>
               </select>
@@ -230,43 +255,35 @@
       }
 
       const syncNetworkPreview = (form) => {
-        const currencySelect = form.querySelector("[data-currency-select]");
+        const currencyInputs = Array.from(form.querySelectorAll("[data-currency-input]"));
         const usdtNetwork = form.querySelector("[data-usdt-network]");
         const usdtLabel = form.querySelector("[data-usdt-label]");
         const networkSelect = form.querySelector("[data-network-select]");
         const networkNote = form.querySelector("[data-network-note]");
-        if (!currencySelect || !networkSelect) {
+        if (!currencyInputs.length || !networkSelect) {
           return;
         }
 
-        const selectedCurrency = (currencySelect.value || "USDT").toUpperCase();
+        const selectedCurrency = (
+          currencyInputs.find((item) => item.checked)?.value || "USDT"
+        ).toUpperCase();
+        const initialDisabled = networkSelect.dataset.initialDisabled === "1";
         const usdtNetworkCode = usdtNetwork ? (usdtNetwork.value || "").trim() : "";
         const usdtNetworkLabel = usdtLabel ? (usdtLabel.value || "USDT") : "USDT";
 
-        const options = Array.from(networkSelect.options);
-        let firstVisible = null;
-        for (const option of options) {
-          const optionCurrency = (option.dataset.currency || "USDT").toUpperCase();
-          const visible = optionCurrency === selectedCurrency;
-          option.hidden = !visible;
-          option.disabled = !visible;
-          if (visible && !firstVisible) {
-            firstVisible = option;
-          }
-        }
-
-        const selectedOption = options.find((item) => item.value === networkSelect.value && !item.disabled);
-        if (!selectedOption && firstVisible) {
-          networkSelect.value = firstVisible.value;
-        }
-
         if (selectedCurrency === "BTC") {
+          networkSelect.value = "btc";
+          networkSelect.disabled = true;
           if (networkNote) {
             networkNote.textContent = "Вы выбрали BTC. Сеть фиксирована: Bitcoin [btc].";
           }
           return;
         }
 
+        if (usdtNetworkCode) {
+          networkSelect.value = usdtNetworkCode;
+        }
+        networkSelect.disabled = initialDisabled;
         if (networkNote) {
           networkNote.textContent = "Вы выбрали USDT. Используется сеть шаблона: " +
             usdtNetworkLabel +
@@ -275,10 +292,10 @@
       };
 
       for (const form of forms) {
-        const currencySelect = form.querySelector("[data-currency-select]");
+        const currencyInputs = Array.from(form.querySelectorAll("[data-currency-input]"));
         syncNetworkPreview(form);
-        if (currencySelect) {
-          currencySelect.addEventListener("change", function () {
+        for (const input of currencyInputs) {
+          input.addEventListener("change", function () {
             syncNetworkPreview(form);
           });
         }

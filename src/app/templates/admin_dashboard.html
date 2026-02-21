@@ -390,6 +390,7 @@
 
       let activeRange = "60m";
       let chartState = null;
+      let lockedIndex = null;
       let resizeTimer = null;
 
       const formatXAxisLabel = (date, bucketMinutes) => {
@@ -451,32 +452,82 @@
         return { counts, labels, bucketStarts, bucketMs, cfg };
       };
 
-      const stepLinePath = (points) => {
+      const smoothLinePath = (points) => {
         if (!points.length) {
           return "";
         }
-        let d = "M " + points[0].x + " " + points[0].y;
-        for (let i = 1; i < points.length; i += 1) {
-          const prev = points[i - 1];
-          const current = points[i];
-          d += " L " + current.x + " " + prev.y + " L " + current.x + " " + current.y;
+        if (points.length === 1) {
+          return "M " + points[0].x + " " + points[0].y;
         }
+        if (points.length === 2) {
+          return "M " + points[0].x + " " + points[0].y + " L " + points[1].x + " " + points[1].y;
+        }
+        let d = "M " + points[0].x + " " + points[0].y;
+        for (let i = 1; i < points.length - 1; i += 1) {
+          const midX = (points[i].x + points[i + 1].x) / 2;
+          const midY = (points[i].y + points[i + 1].y) / 2;
+          d += " Q " + points[i].x + " " + points[i].y + " " + midX + " " + midY;
+        }
+        const last = points[points.length - 1];
+        d += " T " + last.x + " " + last.y;
         return d;
       };
 
-      const stepAreaPath = (points, baseY) => {
+      const smoothAreaPath = (points, baseY) => {
         if (!points.length) {
           return "";
         }
+        if (points.length === 1) {
+          return (
+            "M " + points[0].x + " " + baseY +
+            " L " + points[0].x + " " + points[0].y +
+            " L " + points[0].x + " " + baseY +
+            " Z"
+          );
+        }
         let d = "M " + points[0].x + " " + baseY + " L " + points[0].x + " " + points[0].y;
-        for (let i = 1; i < points.length; i += 1) {
-          const prev = points[i - 1];
-          const current = points[i];
-          d += " L " + current.x + " " + prev.y + " L " + current.x + " " + current.y;
+        if (points.length === 2) {
+          d += " L " + points[1].x + " " + points[1].y;
+        } else {
+          for (let i = 1; i < points.length - 1; i += 1) {
+            const midX = (points[i].x + points[i + 1].x) / 2;
+            const midY = (points[i].y + points[i + 1].y) / 2;
+            d += " Q " + points[i].x + " " + points[i].y + " " + midX + " " + midY;
+          }
+          const last = points[points.length - 1];
+          d += " T " + last.x + " " + last.y;
         }
         const last = points[points.length - 1];
         d += " L " + last.x + " " + baseY + " Z";
         return d;
+      };
+
+      const resolveFocusIndex = (idx) => {
+        if (!chartState || !chartState.counts.length) {
+          return idx;
+        }
+        const counts = chartState.counts;
+        const clamped = Math.max(0, Math.min(idx, counts.length - 1));
+        if (counts[clamped] > 0) {
+          return clamped;
+        }
+        const radius = counts.length >= 1200 ? 24 : counts.length >= 300 ? 12 : 6;
+        for (let delta = 1; delta <= radius; delta += 1) {
+          const left = clamped - delta;
+          const right = clamped + delta;
+          const leftValue = left >= 0 ? counts[left] : -1;
+          const rightValue = right < counts.length ? counts[right] : -1;
+          if (leftValue > 0 && rightValue > 0) {
+            return leftValue >= rightValue ? left : right;
+          }
+          if (leftValue > 0) {
+            return left;
+          }
+          if (rightValue > 0) {
+            return right;
+          }
+        }
+        return clamped;
       };
 
       const showHover = (idx, keepVisible) => {
@@ -484,19 +535,21 @@
           return;
         }
         const clampedIndex = Math.max(0, Math.min(idx, chartState.points.length - 1));
-        const point = chartState.points[clampedIndex];
-        const count = chartState.counts[clampedIndex] || 0;
-        const start = chartState.bucketStarts[clampedIndex];
+        const focusIndex = resolveFocusIndex(clampedIndex);
+        const point = chartState.points[focusIndex];
+        const count = chartState.counts[focusIndex] || 0;
+        const start = chartState.bucketStarts[focusIndex];
         const end = new Date(start.getTime() + chartState.bucketMs);
         const detailLabel = formatDetailLabel(start, end, chartState.cfg.bucketMinutes);
         const total = chartState.total || 1;
         const share = ((count / total) * 100).toFixed(1);
+        const lockText = lockedIndex === focusIndex ? " | locked" : "";
 
         if (slotNode) {
           slotNode.textContent = String(count);
         }
         if (detailNode) {
-          detailNode.textContent = detailLabel + " | requests: " + count + " | share: " + share + "%";
+          detailNode.textContent = detailLabel + " | requests: " + count + " | share: " + share + "%" + lockText;
         }
         if (cursorNode) {
           cursorNode.setAttribute("x1", String(point.x));
@@ -514,15 +567,17 @@
           const chartRect = chartNode.getBoundingClientRect();
           const scaleX = chartRect.width / Math.max(1, chartState.width || 420);
           const scaleY = chartRect.height / Math.max(1, chartState.height || 220);
-          tooltipNode.textContent = chartState.labels[clampedIndex] + " | " + count;
+          tooltipNode.textContent = chartState.labels[focusIndex] + " | " + count + lockText;
           tooltipNode.style.left = (point.x * scaleX) + "px";
           tooltipNode.style.top = ((point.y * scaleY) - 8) + "px";
           tooltipNode.hidden = false;
         }
-        if (!keepVisible && dotsNode) {
-          const allDots = Array.from(dotsNode.querySelectorAll("circle"));
-          allDots.forEach((dot, dotIdx) => {
-            dot.classList.toggle("active", dotIdx === clampedIndex);
+        if (dotsNode) {
+          const allDots = Array.from(dotsNode.querySelectorAll("circle[data-index]"));
+          allDots.forEach((dot) => {
+            const dotIndex = Number(dot.dataset.index || "-1");
+            const isEventHit = dot.classList.contains("event-hit");
+            dot.classList.toggle("active", dotIndex === focusIndex && !isEventHit);
           });
         }
       };
@@ -611,25 +666,83 @@
 
         const pathNode = chartNode.querySelector(".line-path");
         if (pathNode) {
-          pathNode.setAttribute("d", stepLinePath(points));
+          pathNode.setAttribute("d", smoothLinePath(points));
         }
 
         const areaNode = chartNode.querySelector(".line-area");
         if (areaNode) {
-          areaNode.setAttribute("d", stepAreaPath(points, baseY));
+          areaNode.setAttribute("d", smoothAreaPath(points, baseY));
         }
 
         if (dotsNode) {
           dotsNode.innerHTML = "";
-          if (points.length <= 120) {
-            const xmlns = "http://www.w3.org/2000/svg";
-            points.forEach((point) => {
-              const dot = document.createElementNS(xmlns, "circle");
-              dot.setAttribute("cx", String(point.x));
-              dot.setAttribute("cy", String(point.y));
-              dot.setAttribute("r", "3");
-              dotsNode.appendChild(dot);
-            });
+          const xmlns = "http://www.w3.org/2000/svg";
+          const markerIndexes = [];
+          for (let idx = 0; idx < counts.length; idx += 1) {
+            if (counts[idx] > 0) {
+              markerIndexes.push(idx);
+            }
+          }
+          const tailIndex = Math.max(0, counts.length - 1);
+          if (!markerIndexes.includes(tailIndex)) {
+            markerIndexes.push(tailIndex);
+          }
+
+          markerIndexes.forEach((idx) => {
+            const point = points[idx];
+            if (!point) {
+              return;
+            }
+            const dot = document.createElementNS(xmlns, "circle");
+            dot.setAttribute("cx", String(point.x));
+            dot.setAttribute("cy", String(point.y));
+            dot.setAttribute("r", counts[idx] > 0 ? "4.2" : "3");
+            dot.dataset.index = String(idx);
+            if (counts[idx] > 0) {
+              dot.classList.add("non-zero");
+
+              const hit = document.createElementNS(xmlns, "circle");
+              hit.setAttribute("cx", String(point.x));
+              hit.setAttribute("cy", String(point.y));
+              hit.setAttribute("r", "10");
+              hit.dataset.index = String(idx);
+              hit.classList.add("event-hit");
+              dotsNode.appendChild(hit);
+            }
+            dotsNode.appendChild(dot);
+          });
+
+          dotsNode.onclick = function (event) {
+            const target = event.target;
+            if (!(target instanceof SVGCircleElement)) {
+              return;
+            }
+            const idx = Number(target.dataset.index || "");
+            if (!Number.isFinite(idx)) {
+              return;
+            }
+            lockedIndex = lockedIndex === idx ? null : idx;
+            showHover(idx, true);
+            event.stopPropagation();
+          };
+        }
+
+        if (detailNode && lockedIndex === null) {
+          detailNode.textContent = "Наведите на график, кликните по точке, чтобы зафиксировать фокус.";
+        }
+
+        if (lockedIndex !== null) {
+          lockedIndex = Math.max(0, Math.min(lockedIndex, points.length - 1));
+        } else {
+          lockedIndex = null;
+        }
+
+        hideHover();
+        if (points.length > 0) {
+          if (lockedIndex !== null) {
+            showHover(lockedIndex, true);
+          } else {
+            showHover(points.length - 1, true);
           }
         }
 
@@ -657,10 +770,6 @@
           height,
         };
 
-        hideHover();
-        if (points.length > 0) {
-          showHover(points.length - 1, true);
-        }
       };
 
       const indexFromPointer = (event) => {
@@ -678,6 +787,7 @@
 
       const applyRange = (rangeKey) => {
         activeRange = ranges[rangeKey] ? rangeKey : "60m";
+        lockedIndex = null;
         for (const button of rangeButtons) {
           button.classList.toggle("active", button.dataset.range === activeRange);
         }
@@ -691,22 +801,47 @@
       }
 
       chartNode.addEventListener("mousemove", function (event) {
+        if (lockedIndex !== null) {
+          showHover(lockedIndex, true);
+          return;
+        }
         showHover(indexFromPointer(event), false);
       });
       chartNode.addEventListener("mouseleave", function () {
-        if (chartState && chartState.points.length) {
+        if (chartState && chartState.points.length && lockedIndex !== null) {
+          showHover(lockedIndex, true);
+        } else if (chartState && chartState.points.length) {
           showHover(chartState.points.length - 1, true);
         } else {
           hideHover();
         }
+      });
+      chartNode.addEventListener("click", function (event) {
+        const idx = resolveFocusIndex(indexFromPointer(event));
+        lockedIndex = lockedIndex === idx ? null : idx;
+        showHover(idx, true);
       });
       chartNode.addEventListener("touchmove", function (event) {
         const touch = event.touches && event.touches[0];
         if (!touch) {
           return;
         }
+        if (lockedIndex !== null) {
+          showHover(lockedIndex, true);
+          return;
+        }
         showHover(indexFromPointer(touch), false);
       }, { passive: true });
+      window.addEventListener("keydown", function (event) {
+        if (event.key === "Escape") {
+          lockedIndex = null;
+          if (chartState && chartState.points.length) {
+            showHover(chartState.points.length - 1, true);
+          } else {
+            hideHover();
+          }
+        }
+      });
 
       window.addEventListener("resize", function () {
         if (resizeTimer) {

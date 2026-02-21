@@ -700,15 +700,16 @@ a:hover {
 }
 
 .line-area {
-  fill: rgba(47, 75, 255, 0.14);
+  fill: rgba(47, 75, 255, 0.16);
 }
 
 .line-path {
   fill: none;
   stroke: #2f4bff;
-  stroke-width: 2.6;
+  stroke-width: 2.8;
   stroke-linejoin: round;
   stroke-linecap: round;
+  filter: drop-shadow(0 3px 6px rgba(47, 75, 255, 0.18));
 }
 
 .line-cursor {
@@ -726,15 +727,34 @@ a:hover {
 .line-dots circle {
   fill: #ffffff;
   stroke: #2f4bff;
-  stroke-width: 1.8;
+  stroke-width: 2;
   cursor: pointer;
-  transition: stroke-width 0.15s ease, fill 0.15s ease;
+  transition: stroke-width 0.15s ease, fill 0.15s ease, transform 0.15s ease;
 }
 
 .line-dots circle.active,
 .line-dots circle:hover {
   fill: #cfe0ff;
   stroke-width: 2.8;
+  transform: scale(1.08);
+}
+
+.line-dots circle.non-zero {
+  fill: #2f4bff;
+  stroke: #ffffff;
+  stroke-width: 2.2;
+}
+
+.line-dots circle.non-zero.active,
+.line-dots circle.non-zero:hover {
+  fill: #5673ff;
+  transform: scale(1.14);
+}
+
+.line-dots circle.event-hit {
+  fill: transparent;
+  stroke: transparent;
+  pointer-events: all;
 }
 
 .line-detail {
@@ -1726,6 +1746,38 @@ textarea {
 
 .quick-form textarea {
   min-height: 78px;
+}
+
+.quick-currency-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.quick-currency-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.34rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.8);
+  padding: 0.28rem 0.58rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #425273;
+  cursor: pointer;
+}
+
+.quick-currency-pill input[type="radio"] {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+}
+
+.quick-currency-pill:has(input[type="radio"]:checked) {
+  border-color: #6f8bff;
+  background: rgba(222, 232, 255, 0.86);
+  color: #2742b2;
 }
 
 .quick-network-note {
