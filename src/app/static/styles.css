@@ -663,6 +663,7 @@ a:hover {
     radial-gradient(circle at 90% 12%, rgba(94, 125, 255, 0.12), transparent 22%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.68), rgba(237, 243, 255, 0.48));
   padding: 0.5rem 0.56rem 0.55rem;
+  overflow: hidden;
 }
 
 .line-tooltip {
@@ -729,14 +730,13 @@ a:hover {
   stroke: #2f4bff;
   stroke-width: 2;
   cursor: pointer;
-  transition: stroke-width 0.15s ease, fill 0.15s ease, transform 0.15s ease;
+  transition: stroke-width 0.15s ease, fill 0.15s ease, opacity 0.15s ease;
 }
 
 .line-dots circle.active,
-.line-dots circle:hover {
+.line-dots circle:not(.event-hit):hover {
   fill: #cfe0ff;
   stroke-width: 2.8;
-  transform: scale(1.08);
 }
 
 .line-dots circle.non-zero {
@@ -746,15 +746,16 @@ a:hover {
 }
 
 .line-dots circle.non-zero.active,
-.line-dots circle.non-zero:hover {
+.line-dots circle.non-zero:not(.event-hit):hover {
   fill: #5673ff;
-  transform: scale(1.14);
 }
 
 .line-dots circle.event-hit {
   fill: transparent;
   stroke: transparent;
+  opacity: 0;
   pointer-events: all;
+  cursor: crosshair;
 }
 
 .line-detail {
@@ -772,11 +773,12 @@ a:hover {
   margin-top: 0.15rem;
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-columns: minmax(44px, 1fr);
   gap: 0.2rem;
   color: var(--muted);
   font-size: 0.72rem;
   text-align: center;
+  overflow: hidden;
 }
 
 .line-labels .label-muted {
@@ -1427,6 +1429,119 @@ textarea {
 .icon-payment .pill-icon,
 .icon-meta .pill-icon {
   background: linear-gradient(145deg, #dce6ff, #edf3ff);
+}
+
+.icon-method .pill-icon::before {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border: 1px solid rgba(40, 69, 151, 0.75);
+  border-radius: 3px;
+}
+
+.icon-method .pill-icon::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  top: 6px;
+  height: 1px;
+  background: rgba(40, 69, 151, 0.75);
+}
+
+.icon-path .pill-icon::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  width: 8px;
+  height: 8px;
+  border: solid rgba(40, 69, 151, 0.75);
+  border-width: 0 2px 2px 0;
+  transform: rotate(-45deg);
+}
+
+.icon-query .pill-icon::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  width: 5px;
+  height: 5px;
+  border: 1px solid rgba(40, 69, 151, 0.8);
+  border-radius: 999px;
+}
+
+.icon-query .pill-icon::after {
+  content: "";
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 4px;
+  height: 1px;
+  background: rgba(40, 69, 151, 0.8);
+  transform: rotate(35deg);
+}
+
+.icon-agent .pill-icon::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  top: 3px;
+  height: 4px;
+  border-radius: 999px;
+  border: 1px solid rgba(40, 69, 151, 0.75);
+}
+
+.icon-agent .pill-icon::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  bottom: 2px;
+  width: 4px;
+  height: 5px;
+  background: rgba(40, 69, 151, 0.72);
+  border-radius: 2px;
+}
+
+.icon-link .pill-icon::before,
+.icon-link .pill-icon::after {
+  content: "";
+  position: absolute;
+  width: 5px;
+  height: 3px;
+  border: 1px solid rgba(40, 69, 151, 0.75);
+  border-radius: 999px;
+}
+
+.icon-link .pill-icon::before {
+  left: 2px;
+  top: 5px;
+}
+
+.icon-link .pill-icon::after {
+  right: 2px;
+  top: 5px;
+}
+
+.icon-status .pill-icon::before {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border: 1px solid rgba(40, 69, 151, 0.75);
+  border-radius: 999px;
+}
+
+.icon-status .pill-icon::after {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 6px;
+  width: 2px;
+  height: 2px;
+  border-radius: 999px;
+  background: rgba(40, 69, 151, 0.85);
 }
 
 .event-code {

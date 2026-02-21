@@ -20,10 +20,18 @@
       <div class="kpi-label">Errors</div>
       <div class="kpi-value">{{ log_error_count }}</div>
     </article>
+    <article class="kpi-card">
+      <div class="kpi-label">Security Events</div>
+      <div class="kpi-value">{{ log_security_count }}</div>
+    </article>
   </section>
 
   <section class="panel">
     <div class="log-toolbar">
+      <div class="range-switch" role="tablist" aria-label="Log scope filter">
+        <button type="button" class="range-btn active" data-log-scope="all">All Events</button>
+        <button type="button" class="range-btn" data-log-scope="security">Security</button>
+      </div>
       <div class="range-switch" role="tablist" aria-label="Log level filter">
         <button type="button" class="range-btn active" data-log-level="all">All</button>
         <button type="button" class="range-btn" data-log-level="info">Info</button>
@@ -59,7 +67,7 @@
         </thead>
         <tbody>
           {% for row in log_rows %}
-            <tr class="log-row" data-level="{{ row.level_key }}">
+            <tr class="log-row" data-level="{{ row.level_key }}" data-security="{{ '1' if row.is_security else '0' }}">
               <td data-label="Time">{{ row.item.created_at|dt }}</td>
               <td data-label="Level"><span class="log-pill log-{{ row.level_tone }}">{{ row.level_label }}</span></td>
               <td data-label="Event">
@@ -113,6 +121,7 @@
     (function () {
       const rows = Array.from(document.querySelectorAll(".log-row"));
       const levelButtons = Array.from(document.querySelectorAll("[data-log-level]"));
+      const scopeButtons = Array.from(document.querySelectorAll("[data-log-scope]"));
       const searchInput = document.getElementById("log-search-input");
       const visibleCount = document.getElementById("log-visible-count");
       if (!rows.length || !levelButtons.length) {
@@ -120,6 +129,7 @@
       }
 
       let level = "all";
+      let scope = "all";
       let query = "";
 
       const updateCount = (visible) => {
@@ -133,10 +143,12 @@
         let visible = 0;
         for (const row of rows) {
           const rowLevel = row.dataset.level || "";
+          const isSecurity = row.dataset.security === "1";
           const text = row.textContent ? row.textContent.toLowerCase() : "";
           const levelMatch = level === "all" || rowLevel === level;
+          const scopeMatch = scope === "all" || (scope === "security" && isSecurity);
           const queryMatch = !query || text.includes(query);
-          const show = levelMatch && queryMatch;
+          const show = levelMatch && scopeMatch && queryMatch;
           row.style.display = show ? "" : "none";
           if (show) {
             visible += 1;
@@ -149,6 +161,16 @@
         button.addEventListener("click", function () {
           level = button.dataset.logLevel || "all";
           for (const item of levelButtons) {
+            item.classList.toggle("active", item === button);
+          }
+          applyFilters();
+        });
+      }
+
+      for (const button of scopeButtons) {
+        button.addEventListener("click", function () {
+          scope = button.dataset.logScope || "all";
+          for (const item of scopeButtons) {
             item.classList.toggle("active", item === button);
           }
           applyFilters();

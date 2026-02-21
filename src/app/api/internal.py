@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from ..config import get_settings
 from ..db import get_db
 from ..models import Payment, QuickPaymentTemplate
+from ..security_audit import log_security_event, request_security_context
 from ..schemas import (
     PaymentCreateRequest,
     PaymentResponse,
@@ -42,12 +43,30 @@ def _client_ip(request: Request) -> str:
     return "unknown"
 
 
-def verify_admin_api_key(x_api_key: str = Header(default="")) -> None:
+def verify_admin_api_key(
+    request: Request,
+    x_api_key: str = Header(default=""),
+) -> None:
     key = x_api_key.strip()
     expected = settings.admin_api_key.strip()
     if not expected:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="admin_api_key is not configured")
     if not compare_digest(key, expected):
+        sec_context = request_security_context(request)
+        sec_context["auth_channel"] = "api_header"
+        sec_context["status_code"] = "401"
+        log_security_event(
+            event_code="SEC_ADMIN_API_INVALID_KEY",
+            message="Admin API request rejected due to invalid API key",
+            context=sec_context,
+            dedupe_key=(
+                "api-invalid-key|"
+                + sec_context.get("ip", "")
+                + "|"
+                + sec_context.get("request_path", "")
+            ),
+            dedupe_window_seconds=45,
+        )
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key")
 
 
@@ -61,6 +80,16 @@ def enforce_admin_api_rate_limit(request: Request) -> None:
         bucket = _api_access_buckets.get(ip, [])
         bucket = [item for item in bucket if (now - item) <= window]
         if len(bucket) >= limit:
+            sec_context = request_security_context(request)
+            sec_context["auth_channel"] = "api_header"
+            sec_context["status_code"] = "429"
+            log_security_event(
+                event_code="SEC_ADMIN_API_RATE_LIMIT",
+                message="Admin API rate limit exceeded",
+                context=sec_context,
+                dedupe_key="api-rate-limit|" + sec_context.get("ip", ""),
+                dedupe_window_seconds=60,
+            )
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail=f"Rate limit exceeded: max {limit} requests/minute",

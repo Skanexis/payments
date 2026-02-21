@@ -18,6 +18,8 @@ from ..config import get_settings
 from ..db import get_db
 from ..models import AdminUser, ObservedTransfer, Payment, PaymentLog, PaymentStatus, QuickPaymentTemplate
 from ..security import verify_password
+from ..security_audit import client_ip as audit_client_ip
+from ..security_audit import log_security_event, request_security_context
 from ..services.blockchain_clients import BscUsdtClient, BtcClient, EthUsdtClient, TronUsdtClient
 from ..services.payment_service import PaymentService
 from ..templating import templates
@@ -101,6 +103,13 @@ LOG_PARAM_META: dict[str, dict[str, str]] = {
     "candidate_count": {"label": "Candidates", "icon": "count"},
     "error_type": {"label": "Err Type", "icon": "error"},
     "error_text": {"label": "Err Text", "icon": "message"},
+    "http_method": {"label": "Method", "icon": "method"},
+    "request_path": {"label": "Path", "icon": "path"},
+    "query_keys": {"label": "Query Keys", "icon": "query"},
+    "user_agent": {"label": "User-Agent", "icon": "agent"},
+    "referer": {"label": "Referer", "icon": "link"},
+    "status_code": {"label": "Status", "icon": "status"},
+    "auth_channel": {"label": "Channel", "icon": "source"},
     "quote_amount": {"label": "Quote", "icon": "quote"},
     "btc_usd_rate": {"label": "Rate", "icon": "rate"},
     "rate_source": {"label": "Source", "icon": "source"},
@@ -122,6 +131,51 @@ LOG_EVENT_META: dict[str, dict[str, str]] = {
         "title": "Admin Login",
         "description": "Administrator successfully authenticated.",
         "tone": "info",
+    },
+    "ADMIN_LOGIN_CSRF_FAILED": {
+        "title": "Login CSRF Failed",
+        "description": "Login form request had invalid or missing CSRF token.",
+        "tone": "warn",
+    },
+    "ADMIN_LOGIN_RATE_LIMITED": {
+        "title": "Login Rate Limited",
+        "description": "Too many failed login attempts from one IP.",
+        "tone": "warn",
+    },
+    "SEC_ADMIN_LOGIN_GET_PARAMS": {
+        "title": "Login GET Probe",
+        "description": "Credential-like params were sent to /admin/login via GET.",
+        "tone": "warn",
+    },
+    "SEC_ADMIN_LOGIN_EXTERNAL_REFERRER": {
+        "title": "External Login Referrer",
+        "description": "Admin login page opened from external referrer.",
+        "tone": "info",
+    },
+    "SEC_ADMIN_UNAUTH_PANEL_ACCESS": {
+        "title": "Unauthorized Admin Access",
+        "description": "Anonymous request attempted to access admin page endpoint.",
+        "tone": "warn",
+    },
+    "SEC_ADMIN_LOGIN_METHOD_PROBE": {
+        "title": "Login Method Probe",
+        "description": "Unsupported HTTP method was used on /admin/login endpoint.",
+        "tone": "warn",
+    },
+    "SEC_ADMIN_API_INVALID_KEY": {
+        "title": "Admin API Invalid Key",
+        "description": "Request to /api/admin was rejected due to invalid API key.",
+        "tone": "warn",
+    },
+    "SEC_ADMIN_API_RATE_LIMIT": {
+        "title": "Admin API Rate Limit",
+        "description": "Admin API request exceeded per-minute rate limit.",
+        "tone": "warn",
+    },
+    "SEC_ADMIN_API_METHOD_PROBE": {
+        "title": "Admin API Method Probe",
+        "description": "Unsupported HTTP method on /api/admin endpoint.",
+        "tone": "warn",
     },
     "ADMIN_LOGOUT": {
         "title": "Admin Logout",
@@ -186,6 +240,21 @@ _login_attempts_lock = Lock()
 USDT_NETWORK_CHOICES = ("tron_usdt", "bsc_usdt", "eth_usdt")
 _dashboard_cache_lock = Lock()
 _dashboard_cache: dict[str, Any] = {"expires_at": None, "enterprise": None}
+_sensitive_query_keys = {
+    "username",
+    "user",
+    "login",
+    "password",
+    "pass",
+    "pwd",
+    "token",
+    "api_key",
+    "key",
+    "auth",
+    "authorization",
+    "session",
+    "csrf",
+}
 
 
 def _redirect_to_login() -> RedirectResponse:
@@ -203,12 +272,16 @@ def _current_admin(request: Request, db: Session) -> AdminUser | None:
 
 
 def _client_ip(request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-for", "").strip()
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    if request.client and request.client.host:
-        return request.client.host
-    return "unknown"
+    return audit_client_ip(request)
+
+
+def _request_has_sensitive_query(request: Request) -> bool:
+    if not request.query_params:
+        return False
+    for key in request.query_params.keys():
+        if str(key).strip().lower() in _sensitive_query_keys:
+            return True
+    return False
 
 
 def _ensure_csrf_token(request: Request) -> str:
@@ -621,6 +694,13 @@ def _build_log_rows(logs: list[PaymentLog]) -> list[dict[str, Any]]:
 
         details: list[dict[str, str]] = []
         ordered_keys = (
+            "http_method",
+            "request_path",
+            "status_code",
+            "auth_channel",
+            "query_keys",
+            "referer",
+            "user_agent",
             "network",
             "tx_hash",
             "amount",
@@ -696,6 +776,7 @@ def _build_log_rows(logs: list[PaymentLog]) -> list[dict[str, Any]]:
                 "reason": reason,
                 "reason_description": reason_description,
                 "details": details,
+                "is_security": event_code.startswith("SEC_") or event_code.startswith("ADMIN_LOGIN_"),
             }
         )
     return rows
@@ -741,6 +822,30 @@ def login_page(request: Request, db: Session = Depends(get_db)):
     if admin is not None:
         return RedirectResponse("/admin", status_code=303)
 
+    if _request_has_sensitive_query(request):
+        sec_context = request_security_context(request)
+        sec_context["auth_channel"] = "login_get"
+        log_security_event(
+            event_code="SEC_ADMIN_LOGIN_GET_PARAMS",
+            message="Credential-like query parameters sent to /admin/login",
+            context=sec_context,
+            dedupe_key="login-get-query|" + sec_context.get("ip", ""),
+            dedupe_window_seconds=75,
+        )
+    else:
+        referer = request.headers.get("referer", "").strip()
+        if referer and settings.base_url not in referer:
+            sec_context = request_security_context(request)
+            sec_context["auth_channel"] = "external_referrer"
+            log_security_event(
+                event_code="SEC_ADMIN_LOGIN_EXTERNAL_REFERRER",
+                message="External referrer opened /admin/login",
+                level="info",
+                context=sec_context,
+                dedupe_key="login-ref|" + sec_context.get("ip", ""),
+                dedupe_window_seconds=120,
+            )
+
     return templates.TemplateResponse(
         "login.html",
         _page_context(request, admin, error=None),
@@ -756,6 +861,15 @@ def login_action(
     db: Session = Depends(get_db),
 ):
     if not _validate_csrf(request, csrf_token):
+        sec_context = request_security_context(request)
+        sec_context["auth_channel"] = "login_post_form"
+        log_security_event(
+            event_code="ADMIN_LOGIN_CSRF_FAILED",
+            message="Admin login rejected due to invalid CSRF token",
+            context=sec_context,
+            dedupe_key="login-csrf|" + sec_context.get("ip", ""),
+            dedupe_window_seconds=45,
+        )
         return templates.TemplateResponse(
             "login.html",
             _page_context(request, None, error="Сессия устарела. Обновите страницу и попробуйте снова."),
@@ -763,6 +877,15 @@ def login_action(
         )
 
     if _is_login_rate_limited(request):
+        sec_context = request_security_context(request)
+        sec_context["auth_channel"] = "login_post_form"
+        log_security_event(
+            event_code="ADMIN_LOGIN_RATE_LIMITED",
+            message="Admin login blocked due to rate limit",
+            context=sec_context,
+            dedupe_key="login-rate|" + sec_context.get("ip", ""),
+            dedupe_window_seconds=60,
+        )
         return templates.TemplateResponse(
             "login.html",
             _page_context(
@@ -779,6 +902,8 @@ def login_action(
     admin = db.scalar(select(AdminUser).where(AdminUser.username == username.strip()))
     if admin is None or not verify_password(password, admin.password_hash):
         _register_login_failure(request)
+        sec_context = request_security_context(request)
+        sec_context["auth_channel"] = "login_post_form"
         payment_service.add_log(
             db=db,
             payment_id=None,
@@ -788,6 +913,9 @@ def login_action(
                 "event_code": "ADMIN_LOGIN_FAILED",
                 "username": username.strip(),
                 "ip": _client_ip(request),
+                "http_method": sec_context.get("http_method"),
+                "request_path": sec_context.get("request_path"),
+                "query_keys": sec_context.get("query_keys"),
             },
         )
         db.commit()
@@ -805,7 +933,14 @@ def login_action(
         payment_id=None,
         level="info",
         message="Admin login successful",
-        context={"event_code": "ADMIN_LOGIN_SUCCESS", "username": admin.username, "ip": _client_ip(request)},
+        context={
+            "event_code": "ADMIN_LOGIN_SUCCESS",
+            "username": admin.username,
+            "ip": _client_ip(request),
+            "http_method": request.method,
+            "request_path": request.url.path,
+            "auth_channel": "login_post_form",
+        },
     )
     db.commit()
     return RedirectResponse("/admin", status_code=303)
@@ -1452,6 +1587,7 @@ def logs_page(request: Request, db: Session = Depends(get_db)):
 
     error_count = sum(1 for item in log_rows if item["level_tone"] == "danger")
     warning_count = sum(1 for item in log_rows if item["level_tone"] == "warn")
+    security_count = sum(1 for item in log_rows if item["is_security"])
 
     return templates.TemplateResponse(
         "logs.html",
@@ -1462,6 +1598,7 @@ def logs_page(request: Request, db: Session = Depends(get_db)):
             log_rows=log_rows,
             log_error_count=error_count,
             log_warning_count=warning_count,
+            log_security_count=security_count,
             log_total_count=len(log_rows),
         ),
     )

@@ -391,13 +391,17 @@
       let activeRange = "60m";
       let chartState = null;
       let lockedIndex = null;
+      let hoverIndex = null;
+      let hoverFrame = null;
+      let pendingPointer = null;
       let resizeTimer = null;
 
-      const formatXAxisLabel = (date, bucketMinutes) => {
-        if (bucketMinutes < 60) {
+      const formatXAxisLabel = (date, cfg) => {
+        const rangeKey = cfg.key || "60m";
+        if (rangeKey === "60m" || rangeKey === "24h") {
           return date.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
         }
-        if (bucketMinutes < 1440) {
+        if (rangeKey === "7d") {
           return date.toLocaleString("en-GB", {
             day: "2-digit",
             month: "2-digit",
@@ -449,7 +453,7 @@
           }
         }
 
-        const labels = bucketStarts.map((bucketStart) => formatXAxisLabel(bucketStart, cfg.bucketMinutes));
+        const labels = bucketStarts.map((bucketStart) => formatXAxisLabel(bucketStart, cfg));
         return { counts, labels, bucketStarts, bucketMs, cfg };
       };
 
@@ -606,6 +610,12 @@
           }
         }
         if (nearestDistance <= chartState.magnetPx) {
+          if (hoverIndex !== null && chartState.eventIndexSet && chartState.eventIndexSet.has(hoverIndex)) {
+            const stickyPoint = chartState.points[hoverIndex];
+            if (stickyPoint && Math.abs(stickyPoint.x - pointerX) <= (chartState.magnetPx + chartState.magnetHysteresisPx)) {
+              return hoverIndex;
+            }
+          }
           return nearestIndex;
         }
         return clamped;
@@ -617,6 +627,7 @@
         }
         const clampedIndex = Math.max(0, Math.min(idx, chartState.points.length - 1));
         const focusIndex = resolveFocusIndex(clampedIndex, pointerX);
+        hoverIndex = focusIndex;
         const point = chartState.points[focusIndex];
         const count = chartState.counts[focusIndex] || 0;
         const start = chartState.bucketStarts[focusIndex];
@@ -759,7 +770,7 @@
         if (dotsNode) {
           dotsNode.innerHTML = "";
           const xmlns = "http://www.w3.org/2000/svg";
-          const markerIndexes = [];
+          let markerIndexes = [];
           for (let idx = 0; idx < counts.length; idx += 1) {
             if (counts[idx] > 0) {
               markerIndexes.push(idx);
@@ -768,6 +779,27 @@
           const tailIndex = Math.max(0, counts.length - 1);
           if (!markerIndexes.includes(tailIndex)) {
             markerIndexes.push(tailIndex);
+          }
+
+          const markerMinGapPx = series.cfg.key === "60m" ? 5 : (series.cfg.key === "24h" ? 10 : 8);
+          if (markerIndexes.length > 1) {
+            const reducedIndexes = [];
+            for (const idx of markerIndexes) {
+              const point = points[idx];
+              if (!point) {
+                continue;
+              }
+              const prevIdx = reducedIndexes[reducedIndexes.length - 1];
+              const prevPoint = prevIdx !== undefined ? points[prevIdx] : null;
+              if (!prevPoint || Math.abs(point.x - prevPoint.x) >= markerMinGapPx) {
+                reducedIndexes.push(idx);
+                continue;
+              }
+              if ((counts[idx] || 0) > (counts[prevIdx] || 0)) {
+                reducedIndexes[reducedIndexes.length - 1] = idx;
+              }
+            }
+            markerIndexes = reducedIndexes;
           }
 
           markerIndexes.forEach((idx) => {
@@ -819,21 +851,19 @@
           lockedIndex = null;
         }
 
-        hideHover();
-        if (points.length > 0) {
-          if (lockedIndex !== null) {
-            showHover(lockedIndex, true);
-          } else {
-            showHover(points.length - 1, true);
-          }
-        }
-
         if (labelsNode) {
-          const slots = window.innerWidth < 760 ? 5 : 10;
+          const slotMapDesktop = { "60m": 8, "24h": 8, "7d": 7, "30d": 7 };
+          const slotMapMobile = { "60m": 5, "24h": 5, "7d": 5, "30d": 4 };
+          const slotMap = window.innerWidth < 760 ? slotMapMobile : slotMapDesktop;
+          const slots = slotMap[series.cfg.key] || slotMapDesktop["60m"];
           const ticks = [];
+          let prevLabel = "";
           for (let i = 0; i <= slots; i += 1) {
             const idx = Math.min(labels.length - 1, Math.round((i / slots) * (labels.length - 1)));
-            ticks.push("<span>" + labels[idx] + "</span>");
+            const labelText = labels[idx] || "";
+            const muted = labelText === prevLabel;
+            ticks.push("<span class=\"" + (muted ? "label-muted" : "") + "\">" + (muted ? " " : labelText) + "</span>");
+            prevLabel = labelText;
           }
           labelsNode.innerHTML = ticks.join("");
         }
@@ -850,13 +880,29 @@
             .map((value, idx) => ({ value, idx }))
             .filter((item) => item.value > 0)
             .map((item) => item.idx),
-          magnetPx: 14,
+          eventIndexSet: new Set(
+            counts
+              .map((value, idx) => ({ value, idx }))
+              .filter((item) => item.value > 0)
+              .map((item) => item.idx)
+          ),
+          magnetPx: series.cfg.key === "60m" ? 12 : (series.cfg.key === "24h" ? 7 : 9),
+          magnetHysteresisPx: 4,
           total,
           top,
           baseY,
           width,
           height,
         };
+
+        hideHover();
+        if (points.length > 0) {
+          if (lockedIndex !== null) {
+            showHover(lockedIndex, true);
+          } else {
+            showHover(points.length - 1, true);
+          }
+        }
 
       };
 
@@ -876,9 +922,31 @@
         return { index, x };
       };
 
+      const scheduleHover = (pointer, keepVisible) => {
+        pendingPointer = { pointer, keepVisible };
+        if (hoverFrame !== null) {
+          return;
+        }
+        hoverFrame = window.requestAnimationFrame(function () {
+          hoverFrame = null;
+          if (!pendingPointer) {
+            return;
+          }
+          const payload = pendingPointer;
+          pendingPointer = null;
+          showHover(payload.pointer.index, payload.keepVisible, payload.pointer.x);
+        });
+      };
+
       const applyRange = (rangeKey) => {
         activeRange = ranges[rangeKey] ? rangeKey : "60m";
         lockedIndex = null;
+        hoverIndex = null;
+        pendingPointer = null;
+        if (hoverFrame !== null) {
+          window.cancelAnimationFrame(hoverFrame);
+          hoverFrame = null;
+        }
         for (const button of rangeButtons) {
           button.classList.toggle("active", button.dataset.range === activeRange);
         }
@@ -897,9 +965,14 @@
           return;
         }
         const pointer = pointerFromEvent(event);
-        showHover(pointer.index, false, pointer.x);
+        scheduleHover(pointer, false);
       });
       chartNode.addEventListener("mouseleave", function () {
+        pendingPointer = null;
+        if (hoverFrame !== null) {
+          window.cancelAnimationFrame(hoverFrame);
+          hoverFrame = null;
+        }
         if (chartState && chartState.points.length && lockedIndex !== null) {
           showHover(lockedIndex, true);
         } else if (chartState && chartState.points.length) {
@@ -924,7 +997,7 @@
           return;
         }
         const pointer = pointerFromEvent(touch);
-        showHover(pointer.index, false, pointer.x);
+        scheduleHover(pointer, false);
       }, { passive: true });
       window.addEventListener("keydown", function (event) {
         if (event.key === "Escape") {

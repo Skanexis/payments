@@ -17,10 +17,12 @@ from .api.internal import router as internal_router
 from .api.public import router as public_router
 from .config import get_settings
 from .db import init_db
+from .security_audit import log_security_event, request_security_context
 from .services.monitor import PaymentMonitor
 
 
 settings = get_settings()
+_redirect_status_codes = {301, 302, 303, 307, 308}
 
 
 def configure_logging() -> None:
@@ -96,6 +98,67 @@ app.add_middleware(
 @app.middleware("http")
 async def apply_security_headers(request: Request, call_next):
     response = await call_next(request)
+
+    path = request.url.path
+    is_admin_path = path.startswith("/admin")
+    is_admin_api_path = path.startswith("/api/admin")
+    session_admin_id = None
+    try:
+        session_admin_id = request.session.get("admin_user_id")
+    except Exception:
+        session_admin_id = None
+
+    if path == "/admin/login" and request.method not in {"GET", "POST"}:
+        sec_context = request_security_context(request)
+        sec_context["status_code"] = str(response.status_code)
+        sec_context["auth_channel"] = "login_endpoint"
+        log_security_event(
+            event_code="SEC_ADMIN_LOGIN_METHOD_PROBE",
+            message="Unsupported HTTP method used on /admin/login",
+            context=sec_context,
+            dedupe_key="login-method|" + sec_context.get("ip", "") + "|" + request.method,
+            dedupe_window_seconds=75,
+        )
+
+    if path == "/admin/login" and request.method == "POST":
+        content_type = request.headers.get("content-type", "").lower()
+        if ("application/x-www-form-urlencoded" not in content_type) and ("multipart/form-data" not in content_type):
+            sec_context = request_security_context(request)
+            sec_context["status_code"] = str(response.status_code)
+            sec_context["auth_channel"] = "login_non_form"
+            log_security_event(
+                event_code="SEC_ADMIN_LOGIN_METHOD_PROBE",
+                message="Non-form payload used for /admin/login",
+                context=sec_context,
+                dedupe_key="login-non-form|" + sec_context.get("ip", ""),
+                dedupe_window_seconds=75,
+            )
+
+    if is_admin_path and path != "/admin/login" and not session_admin_id:
+        location = response.headers.get("location", "")
+        if response.status_code in _redirect_status_codes and "/admin/login" in location:
+            sec_context = request_security_context(request)
+            sec_context["status_code"] = str(response.status_code)
+            sec_context["auth_channel"] = "direct_admin_path"
+            log_security_event(
+                event_code="SEC_ADMIN_UNAUTH_PANEL_ACCESS",
+                message="Unauthorized request to admin endpoint redirected to login",
+                context=sec_context,
+                dedupe_key="admin-redirect|" + sec_context.get("ip", "") + "|" + path,
+                dedupe_window_seconds=60,
+            )
+
+    if is_admin_api_path and response.status_code == 405:
+        sec_context = request_security_context(request)
+        sec_context["status_code"] = str(response.status_code)
+        sec_context["auth_channel"] = "api_method_probe"
+        log_security_event(
+            event_code="SEC_ADMIN_API_METHOD_PROBE",
+            message="Unsupported HTTP method on /api/admin endpoint",
+            context=sec_context,
+            dedupe_key="api-method|" + sec_context.get("ip", "") + "|" + request.method + "|" + path,
+            dedupe_window_seconds=60,
+        )
 
     # CSP allows current inline scripts/styles used by templates while restricting external origins.
     response.headers.setdefault(
