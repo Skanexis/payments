@@ -1,0 +1,228 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="page-head">
+    <div>
+      <h1 class="page-title">Payments</h1>
+      <p class="page-subtitle">Быстрое создание инвойсов по шаблонам. Цена всегда задается в USD.</p>
+    </div>
+    <div class="actions">
+      <a class="btn btn-outline" href="/admin/payments/new">Advanced Form</a>
+    </div>
+  </section>
+
+  {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+  {% endif %}
+  {% if info %}
+    <div class="alert alert-success">{{ info }}</div>
+  {% endif %}
+
+  <section class="quick-grid">
+    {% for preset in quick_presets %}
+      <article class="panel quick-card">
+        <div class="quick-head">
+          <span class="quick-icon quick-{{ preset.icon }}"></span>
+          <div>
+            <h2 class="panel-title">{{ preset.title }}</h2>
+            <p class="panel-subtitle">{{ preset.description }}</p>
+          </div>
+          <span class="quick-price-badge">Preset: {{ preset.usd_amount }} USD</span>
+        </div>
+
+        <form method="post" action="/admin/payments/quick" class="quick-form" data-quick-form>
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="preset_id" value="{{ preset.id }}">
+          <input type="hidden" name="use_preset_amount" value="1" data-lock-field>
+
+          <label class="field">
+            <span class="field-label">Title</span>
+            <input type="text" name="title" value="{{ preset.title }}">
+          </label>
+
+          <div class="form-grid">
+            <label class="field">
+              <span class="field-label">Currency</span>
+              <select name="currency" data-currency-select required>
+                <option value="USDT">USDT</option>
+                <option value="BTC">BTC</option>
+              </select>
+            </label>
+            <label class="field">
+              <span class="field-label">Network</span>
+              <select name="network" data-network-select required>
+                {% for option in network_options %}
+                  <option
+                    value="{{ option.code }}"
+                    data-currency="{{ option.currency }}"
+                    {% if not option.configured %}disabled{% endif %}
+                  >
+                    {{ option.title }} {% if not option.configured %}(wallet не настроен){% endif %}
+                  </option>
+                {% endfor %}
+              </select>
+            </label>
+          </div>
+
+          <div class="form-grid">
+            <div class="field">
+              <span class="field-label">Price (USD)</span>
+              <input
+                type="text"
+                name="base_amount"
+                value="{{ preset.usd_amount }}"
+                data-amount-input
+                data-preset-amount="{{ preset.usd_amount }}"
+                required
+              >
+              <label class="quick-lock-row">
+                <input type="checkbox" data-lock-toggle checked>
+                <span>Use fixed preset amount</span>
+              </label>
+              <span class="field-note">Отключите фиксацию, если нужна ручная цена для разового инвойса.</span>
+            </div>
+            <label class="field">
+              <span class="field-label">TTL (minutes)</span>
+              <input type="number" name="ttl_minutes" min="1" max="1440" value="{{ preset.ttl_minutes }}" required>
+            </label>
+          </div>
+
+          <label class="field">
+            <span class="field-label">Description</span>
+            <textarea name="description">{{ preset.description }}</textarea>
+          </label>
+
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary" data-submit-btn>Create Quick Invoice</button>
+          </div>
+        </form>
+      </article>
+    {% endfor %}
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <h2 class="panel-title">Recent Payments</h2>
+        <p class="panel-subtitle">Последние 200 инвойсов.</p>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Title</th>
+            <th>Network</th>
+            <th>Amount</th>
+            <th>Status</th>
+            <th>Created</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for payment in payments %}
+            <tr>
+              <td data-label="ID"><a class="table-link mono" href="/admin/payments/{{ payment.id }}">{{ payment.id[:8] }}</a></td>
+              <td data-label="Title">{{ payment.title }}</td>
+              <td data-label="Network">{{ payment.network }}</td>
+              <td data-label="Amount" class="mono">{{ payment.pay_amount|amt }} {{ payment.asset_symbol }}</td>
+              <td data-label="Status"><span class="status-pill status-{{ payment.status }}">{{ payment.status }}</span></td>
+              <td data-label="Created">{{ payment.created_at|dt }}</td>
+            </tr>
+          {% else %}
+            <tr>
+              <td class="empty-cell" colspan="6">Пока платежей нет.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <script>
+    (function () {
+      const forms = Array.from(document.querySelectorAll("[data-quick-form]"));
+      if (!forms.length) {
+        return;
+      }
+
+      const syncFormNetworks = (form) => {
+        const currencySelect = form.querySelector("[data-currency-select]");
+        const networkSelect = form.querySelector("[data-network-select]");
+        if (!currencySelect || !networkSelect) {
+          return;
+        }
+
+        const selectedCurrency = currencySelect.value || "USDT";
+        let firstAllowed = "";
+        for (const option of Array.from(networkSelect.options)) {
+          const optionCurrency = option.dataset.currency || "USDT";
+          const allowed = optionCurrency === selectedCurrency && !option.disabled;
+          option.hidden = !allowed;
+          if (allowed && !firstAllowed) {
+            firstAllowed = option.value;
+          }
+        }
+        const current = networkSelect.options[networkSelect.selectedIndex];
+        if (!current || current.hidden) {
+          networkSelect.value = firstAllowed;
+        }
+      };
+
+      const syncAmountLock = (form) => {
+        const lockField = form.querySelector("[data-lock-field]");
+        const lockToggle = form.querySelector("[data-lock-toggle]");
+        const amountInput = form.querySelector("[data-amount-input]");
+        if (!lockField || !lockToggle || !amountInput) {
+          return;
+        }
+
+        const presetAmount = amountInput.dataset.presetAmount || "";
+        const isLocked = lockToggle.checked;
+        lockField.value = isLocked ? "1" : "0";
+        amountInput.readOnly = isLocked;
+        amountInput.classList.toggle("input-locked", isLocked);
+        if (isLocked) {
+          amountInput.value = presetAmount;
+        }
+      };
+
+      for (const form of forms) {
+        const currencySelect = form.querySelector("[data-currency-select]");
+        const networkSelect = form.querySelector("[data-network-select]");
+        const lockToggle = form.querySelector("[data-lock-toggle]");
+        const submitBtn = form.querySelector("[data-submit-btn]");
+        syncFormNetworks(form);
+        syncAmountLock(form);
+        if (currencySelect) {
+          currencySelect.addEventListener("change", function () {
+            syncFormNetworks(form);
+          });
+        }
+        if (networkSelect) {
+          networkSelect.addEventListener("change", function () {
+            const selected = networkSelect.options[networkSelect.selectedIndex];
+            if (!selected) {
+              return;
+            }
+            const optionCurrency = selected.dataset.currency || "USDT";
+            if (currencySelect && currencySelect.value !== optionCurrency) {
+              currencySelect.value = optionCurrency;
+              syncFormNetworks(form);
+            }
+          });
+        }
+        if (lockToggle) {
+          lockToggle.addEventListener("change", function () {
+            syncAmountLock(form);
+          });
+        }
+        form.addEventListener("submit", function () {
+          if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.textContent = "Creating...";
+          }
+        });
+      }
+    })();
+  </script>
+{% endblock %}

@@ -95,6 +95,7 @@
           <p class="panel-subtitle">Интерактивная динамика создания инвойсов с переключением окна времени.</p>
         </div>
         <div class="range-switch" role="tablist" aria-label="Activity time range">
+          <button type="button" class="range-btn" data-range="60m">60m</button>
           <button type="button" class="range-btn" data-range="24h">24h</button>
           <button type="button" class="range-btn active" data-range="7d">7d</button>
           <button type="button" class="range-btn" data-range="30d">30d</button>
@@ -103,15 +104,15 @@
 
       <div class="line-summary">
         <div class="line-summary-item">
-          <span class="line-summary-label">Current Bucket</span>
+          <span class="line-summary-label">Текущий интервал</span>
           <span id="today-count" class="line-summary-value">0</span>
         </div>
         <div class="line-summary-item">
-          <span class="line-summary-label">Window Total</span>
+          <span class="line-summary-label">Всего в окне</span>
           <span id="week-count" class="line-summary-value">0</span>
         </div>
         <div class="line-summary-item">
-          <span class="line-summary-label">Peak Bucket</span>
+          <span class="line-summary-label">Пик интервала</span>
           <span id="peak-count" class="line-summary-value">0</span>
         </div>
       </div>
@@ -129,55 +130,90 @@
     </article>
   </section>
 
+  <section class="panel metric-help">
+    <div class="metric-help-grid">
+      <div class="metric-help-item">
+        <span class="metric-help-dot dot-ok"></span>
+        <span><strong>Match Rate:</strong> насколько хорошо система сама сопоставляет входящие переводы.</span>
+      </div>
+      <div class="metric-help-item">
+        <span class="metric-help-dot dot-warn"></span>
+        <span><strong>Transfer Issues:</strong> переводы, которым нужен ручной разбор (сумма/время/конфликт).</span>
+      </div>
+      <div class="metric-help-item">
+        <span class="metric-help-dot dot-info"></span>
+        <span><strong>TPM:</strong> transfers per minute, индикатор текущей нагрузки на мониторинг.</span>
+      </div>
+    </div>
+  </section>
+
   <section class="panel">
     <div class="panel-head">
       <div>
         <h2 class="panel-title">Enterprise Ops Metrics</h2>
         <p class="panel-subtitle">Финансовая и операционная аналитика по платежам и входящим переводам.</p>
       </div>
-      <span class="load-pill load-{{ enterprise.load_level }}">Load: {{ enterprise.load_level }}</span>
+      <div>
+        <span class="load-pill load-{{ enterprise.load_level }}">Load: {{ enterprise.load_level }}</span>
+        <div class="subline">Updated: {{ now|dt }}</div>
+      </div>
     </div>
 
     <div class="kpi-grid">
       <article class="kpi-card">
-        <div class="kpi-label">Tracked Balance</div>
+        <div class="kpi-label">Confirmed Volume Total</div>
         <div class="kpi-value mono">{{ enterprise.paid_volume_total }}</div>
-        <div class="kpi-note">Суммарный подтвержденный входящий объем</div>
+        <div class="kpi-note">Подтвержденный оборот за все время</div>
       </article>
       <article class="kpi-card">
-        <div class="kpi-label">Paid 24H</div>
+        <div class="kpi-label">Confirmed 24H</div>
         <div class="kpi-value mono">{{ enterprise.paid_volume_24h }}</div>
-        <div class="kpi-note">Подтвержденные оплаты за последние 24 часа</div>
+        <div class="kpi-note">Оплаты, перешедшие в paid за 24 часа</div>
       </article>
       <article class="kpi-card">
-        <div class="kpi-label">Pending Exposure</div>
+        <div class="kpi-label">Open Exposure</div>
         <div class="kpi-value mono">{{ enterprise.pending_exposure }}</div>
-        <div class="kpi-note">Сумма активных pending/confirming платежей</div>
+        <div class="kpi-note">Сумма активных pending + confirming</div>
       </article>
       <article class="kpi-card">
         <div class="kpi-label">Avg Settlement (min)</div>
         <div class="kpi-value">{{ enterprise.avg_settlement_minutes if enterprise.avg_settlement_minutes is not none else "-" }}</div>
-        <div class="kpi-note">Среднее время от создания до paid</div>
+        <div class="kpi-note">Среднее время закрытия инвойса</div>
       </article>
       <article class="kpi-card">
         <div class="kpi-label">Auto-Match Rate 24H</div>
         <div class="kpi-value">{{ enterprise.match_rate_24h ~ "%" if enterprise.match_rate_24h is not none else "-" }}</div>
-        <div class="kpi-note">Matched: {{ enterprise.transfer_matched_24h }} / {{ enterprise.transfer_total_24h }}</div>
+        <div class="kpi-note">{{ enterprise.transfer_matched_24h }} из {{ enterprise.transfer_total_24h }} переводов matched</div>
       </article>
       <article class="kpi-card">
         <div class="kpi-label">Transfer Issues 24H</div>
         <div class="kpi-value">{{ enterprise.transfer_issues_24h }}</div>
-        <div class="kpi-note">amount_mismatch, conflict, before/after expiry, unmatched</div>
+        <div class="kpi-note">Проблемные кейсы, требующие ручной проверки</div>
       </article>
       <article class="kpi-card">
         <div class="kpi-label">Transfers Last Hour</div>
         <div class="kpi-value">{{ enterprise.transfers_last_hour }}</div>
-        <div class="kpi-note">Peak TPM: {{ enterprise.peak_tpm }}</div>
+        <div class="kpi-note">Пиковый TPM: {{ enterprise.peak_tpm }}</div>
+      </article>
+      <article class="kpi-card">
+        <div class="kpi-label">Transfers 15m / 5m</div>
+        <div class="kpi-value">{{ enterprise.transfers_last_15m }} / {{ enterprise.transfers_last_5m }}</div>
+        <div class="kpi-note">Срез нагрузки за короткие интервалы</div>
+      </article>
+      <article class="kpi-card">
+        <div class="kpi-label">Avg TPM (5m)</div>
+        <div class="kpi-value">{{ enterprise.avg_tpm_5m }}</div>
+        <div class="kpi-note">Среднее число переводов в минуту</div>
+      </article>
+      <article class="kpi-card">
+        <div class="kpi-label">Invoices 60m</div>
+        <div class="kpi-value">{{ enterprise.payments_created_60m }}</div>
+        <div class="kpi-note">Новые инвойсы за последний час</div>
       </article>
       <article class="kpi-card">
         <div class="kpi-label">Stale Active Payments</div>
         <div class="kpi-value">{{ enterprise.stale_active_count }}</div>
-        <div class="kpi-note">Активные инвойсы старше порога мониторинга</div>
+        <div class="kpi-note">Активные инвойсы, зависшие дольше нормы</div>
       </article>
     </div>
   </section>
@@ -322,6 +358,7 @@
 
       const now = nowRaw ? new Date(nowRaw) : new Date();
       const ranges = {
+        "60m": { bucketMinutes: 5, bucketCount: 12 },
         "24h": { bucketMinutes: 60, bucketCount: 24 },
         "7d": { bucketMinutes: 1440, bucketCount: 7 },
         "30d": { bucketMinutes: 1440, bucketCount: 30 }
@@ -348,11 +385,24 @@
         0,
         0
       ));
+      const alignToBucketUtc = (d, bucketMinutes) => {
+        const mins = d.getUTCMinutes();
+        const aligned = Math.floor(mins / bucketMinutes) * bucketMinutes;
+        return new Date(Date.UTC(
+          d.getUTCFullYear(),
+          d.getUTCMonth(),
+          d.getUTCDate(),
+          d.getUTCHours(),
+          aligned,
+          0,
+          0
+        ));
+      };
 
       const buildSeries = (rangeKey) => {
         const cfg = ranges[rangeKey] || ranges["7d"];
         const bucketMs = cfg.bucketMinutes * 60000;
-        const endStart = cfg.bucketMinutes === 60 ? startOfHourUtc(now) : startOfDayUtc(now);
+        const endStart = cfg.bucketMinutes < 1440 ? alignToBucketUtc(now, cfg.bucketMinutes) : startOfDayUtc(now);
         const coverageStart = new Date(endStart.getTime() - ((cfg.bucketCount - 1) * bucketMs));
         const coverageEnd = new Date(endStart.getTime() + bucketMs);
         const labels = [];
@@ -360,7 +410,7 @@
 
         for (let i = 0; i < cfg.bucketCount; i += 1) {
           const bucketStart = new Date(coverageStart.getTime() + (i * bucketMs));
-          labels.push(cfg.bucketMinutes === 60 ? fmtHour(bucketStart) : fmtDay(bucketStart));
+          labels.push(cfg.bucketMinutes < 1440 ? fmtHour(bucketStart) : fmtDay(bucketStart));
         }
 
         for (const ts of createdDates) {

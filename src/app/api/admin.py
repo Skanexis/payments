@@ -105,11 +105,109 @@ LOG_PARAM_META: dict[str, dict[str, str]] = {
     "btc_usd_rate": {"label": "Rate", "icon": "rate"},
     "rate_source": {"label": "Source", "icon": "source"},
     "payment_id": {"label": "Payment", "icon": "payment"},
+    "payer_address": {"label": "From", "icon": "meta"},
+    "match_status": {"label": "Status", "icon": "meta"},
+    "before_count": {"label": "Before", "icon": "meta"},
+    "after_count": {"label": "After", "icon": "meta"},
+    "cancelled_by": {"label": "Cancelled By", "icon": "user"},
+}
+
+LOG_EVENT_META: dict[str, dict[str, str]] = {
+    "ADMIN_LOGIN_FAILED": {
+        "title": "Failed Admin Login",
+        "description": "Wrong credentials or suspicious access attempt.",
+        "tone": "warn",
+    },
+    "ADMIN_LOGIN_SUCCESS": {
+        "title": "Admin Login",
+        "description": "Administrator successfully authenticated.",
+        "tone": "info",
+    },
+    "ADMIN_LOGOUT": {
+        "title": "Admin Logout",
+        "description": "Administrator session closed.",
+        "tone": "info",
+    },
+    "TRANSFER_FETCH_FAILED": {
+        "title": "Transfer Fetch Error",
+        "description": "Node/API request failed, monitor could not load transfers.",
+        "tone": "danger",
+    },
+    "TRANSFER_APPLY_FAILED": {
+        "title": "Transfer Apply Error",
+        "description": "Transfer was detected but could not be applied to payment state.",
+        "tone": "danger",
+    },
+    "TRANSFER_MATCHED": {
+        "title": "Transfer Matched",
+        "description": "Transfer matched invoice by network/amount/time window.",
+        "tone": "success",
+    },
+    "TRANSFER_AWAITING_CONFIRMATIONS": {
+        "title": "Awaiting Confirmations",
+        "description": "Transfer linked, waiting for required confirmations.",
+        "tone": "info",
+    },
+    "TRANSFER_ALREADY_LINKED": {
+        "title": "Transfer Already Linked",
+        "description": "Tx hash already belongs to another payment.",
+        "tone": "warn",
+    },
+    "TRANSFER_UNMATCHED": {
+        "title": "Unmatched Transfer",
+        "description": "Transfer was observed but not auto-matched.",
+        "tone": "warn",
+    },
+    "BTC_RATE_LOCKED": {
+        "title": "BTC Rate Locked",
+        "description": "BTC/USD quote locked at invoice creation time.",
+        "tone": "info",
+    },
+    "PAYMENT_CANCELLED_MANUALLY": {
+        "title": "Payment Cancelled",
+        "description": "Invoice was cancelled by administrator.",
+        "tone": "warn",
+    },
 }
 
 CSRF_SESSION_KEY = "csrf_token"
 _login_attempts: dict[str, list[datetime]] = defaultdict(list)
 _login_attempts_lock = Lock()
+
+QUICK_PAYMENT_PRESETS: list[dict[str, str]] = [
+    {
+        "id": "sub_30",
+        "title": "Subscription 30 days",
+        "description": "Доступ на 30 дней",
+        "usd_amount": "9.90",
+        "ttl_minutes": "60",
+        "icon": "calendar",
+    },
+    {
+        "id": "sub_90",
+        "title": "Subscription 90 days",
+        "description": "Расширенный доступ на 90 дней",
+        "usd_amount": "24.90",
+        "ttl_minutes": "60",
+        "icon": "rocket",
+    },
+    {
+        "id": "pro_support",
+        "title": "Pro Support",
+        "description": "Приоритетная поддержка и SLA",
+        "usd_amount": "49.00",
+        "ttl_minutes": "90",
+        "icon": "shield",
+    },
+    {
+        "id": "lifetime",
+        "title": "Lifetime Access",
+        "description": "Постоянный доступ без продления",
+        "usd_amount": "129.00",
+        "ttl_minutes": "120",
+        "icon": "spark",
+    },
+]
 
 
 def _redirect_to_login() -> RedirectResponse:
@@ -187,6 +285,20 @@ def _page_context(request: Request, admin: AdminUser | None, **extra: Any) -> di
     context = {"request": request, "admin_user": admin, "csrf_token": _ensure_csrf_token(request)}
     context.update(extra)
     return context
+
+
+def _network_currency(network: str) -> str:
+    if network == "btc":
+        return "BTC"
+    return "USDT"
+
+
+def _find_quick_preset(preset_id: str) -> dict[str, str] | None:
+    preset_key = preset_id.strip().lower()
+    for item in QUICK_PAYMENT_PRESETS:
+        if item["id"].lower() == preset_key:
+            return item
+    return None
 
 
 def _safe_decimal(value: Any) -> Decimal:
@@ -270,6 +382,8 @@ def _build_enterprise_stats(db: Session, payments: list[Payment]) -> dict[str, A
     now = utcnow()
     day_ago = now - timedelta(hours=24)
     hour_ago = now - timedelta(hours=1)
+    fifteen_min_ago = now - timedelta(minutes=15)
+    five_min_ago = now - timedelta(minutes=5)
     stale_cutoff = now - timedelta(minutes=max(15, settings.monitor_interval_seconds * 3))
 
     paid_payments = [p for p in payments if p.status == PaymentStatus.paid.value]
@@ -308,6 +422,12 @@ def _build_enterprise_stats(db: Session, payments: list[Payment]) -> dict[str, A
     transfers_1h = db.scalars(
         select(ObservedTransfer).where(ObservedTransfer.last_seen_at >= hour_ago)
     ).all()
+    transfers_15m = db.scalars(
+        select(ObservedTransfer).where(ObservedTransfer.last_seen_at >= fifteen_min_ago)
+    ).all()
+    transfers_5m = db.scalars(
+        select(ObservedTransfer).where(ObservedTransfer.last_seen_at >= five_min_ago)
+    ).all()
 
     transfer_total_24h = len(transfers_24h)
     transfer_matched_24h = sum(1 for transfer in transfers_24h if transfer.match_status in MATCHED_TRANSFER_STATUSES)
@@ -327,6 +447,10 @@ def _build_enterprise_stats(db: Session, payments: list[Payment]) -> dict[str, A
 
     peak_tpm = max(minute_buckets.values()) if minute_buckets else 0
     transfers_last_hour = len(transfers_1h)
+    transfers_last_15m = len(transfers_15m)
+    transfers_last_5m = len(transfers_5m)
+    avg_tpm_5m = round(transfers_last_5m / 5, 2)
+    payments_created_60m = sum(1 for p in payments if (ensure_utc(p.created_at) or now) >= hour_ago)
     if transfers_last_hour >= 120 or peak_tpm >= 8:
         load_level = "high"
     elif transfers_last_hour >= 40 or peak_tpm >= 4:
@@ -393,6 +517,10 @@ def _build_enterprise_stats(db: Session, payments: list[Payment]) -> dict[str, A
         "transfer_issues_24h": transfer_issues_24h,
         "match_rate_24h": match_rate_24h,
         "transfers_last_hour": transfers_last_hour,
+        "transfers_last_15m": transfers_last_15m,
+        "transfers_last_5m": transfers_last_5m,
+        "avg_tpm_5m": avg_tpm_5m,
+        "payments_created_60m": payments_created_60m,
         "peak_tpm": peak_tpm,
         "load_level": load_level,
         "stale_active_count": stale_active_count,
@@ -407,9 +535,17 @@ def _build_log_rows(logs: list[PaymentLog]) -> list[dict[str, Any]]:
         level_key = item.level.lower()
         level_meta = LOG_LEVEL_META.get(level_key, {"label": level_key.upper(), "tone": "muted"})
 
-        event_code = str(context.get("event_code") or "-")
+        raw_event_code = str(context.get("event_code") or "").strip()
+        event_code = raw_event_code.upper() if raw_event_code else "-"
+        event_meta = LOG_EVENT_META.get(event_code, {})
+        event_title = event_meta.get("title") or item.message
+        event_description = event_meta.get("description") or ""
+        event_tone = event_meta.get("tone") or level_meta["tone"]
+
         reason = str(context.get("reason") or context.get("match_status") or "")
         reason_description = str(context.get("reason_description") or "")
+        if reason_description and not event_description:
+            event_description = reason_description
 
         details: list[dict[str, str]] = []
         ordered_keys = (
@@ -418,12 +554,17 @@ def _build_log_rows(logs: list[PaymentLog]) -> list[dict[str, Any]]:
             "amount",
             "confirmations",
             "required_confirmations",
+            "payer_address",
             "quote_amount",
             "btc_usd_rate",
             "rate_source",
+            "match_status",
             "ip",
             "username",
             "candidate_count",
+            "before_count",
+            "after_count",
+            "cancelled_by",
             "error_type",
             "error_text",
         )
@@ -477,6 +618,9 @@ def _build_log_rows(logs: list[PaymentLog]) -> list[dict[str, Any]]:
                 "level_label": level_meta["label"],
                 "level_tone": level_meta["tone"],
                 "event_code": event_code,
+                "event_title": event_title,
+                "event_description": event_description,
+                "event_tone": event_tone,
                 "reason": reason,
                 "reason_description": reason_description,
                 "details": details,
@@ -655,6 +799,129 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     )
 
 
+@router.get("/payments")
+def payments_page(request: Request, db: Session = Depends(get_db)):
+    admin = _current_admin(request, db)
+    if admin is None:
+        return _redirect_to_login()
+
+    payments = db.scalars(select(Payment).order_by(Payment.created_at.desc()).limit(200)).all()
+    error = request.query_params.get("error")
+    info = request.query_params.get("info")
+
+    return templates.TemplateResponse(
+        "payments.html",
+        _page_context(
+            request,
+            admin,
+            payments=payments,
+            network_options=payment_service.network_options(),
+            quick_presets=QUICK_PAYMENT_PRESETS,
+            default_ttl=settings.payment_ttl_minutes,
+            error=error,
+            info=info,
+        ),
+    )
+
+
+@router.post("/payments/quick")
+def quick_create_payment(
+    request: Request,
+    preset_id: str = Form(...),
+    network: str = Form(...),
+    currency: str = Form("USDT"),
+    use_preset_amount: str = Form("1"),
+    base_amount: str = Form(...),
+    ttl_minutes: int = Form(...),
+    title: str = Form(""),
+    description: str = Form(""),
+    csrf_token: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    admin = _current_admin(request, db)
+    if admin is None:
+        return _redirect_to_login()
+
+    if not _validate_csrf(request, csrf_token):
+        return RedirectResponse(
+            f"/admin/payments?error={quote_plus('Session expired. Refresh and try again')}",
+            status_code=303,
+        )
+
+    preset = _find_quick_preset(preset_id)
+    if preset is None:
+        return RedirectResponse(
+            f"/admin/payments?error={quote_plus('Unknown quick preset')}",
+            status_code=303,
+        )
+
+    network_code = network.strip().lower()
+    network_info = payment_service.get_networks().get(network_code)
+    if network_info is None:
+        return RedirectResponse(
+            f"/admin/payments?error={quote_plus('Unsupported network')}",
+            status_code=303,
+        )
+
+    expected_currency = _network_currency(network_code)
+    selected_currency = currency.strip().upper() or "USDT"
+    if selected_currency != expected_currency:
+        return RedirectResponse(
+            f"/admin/payments?error={quote_plus('Selected currency does not match network')}",
+            status_code=303,
+        )
+
+    use_preset_value = use_preset_amount.strip().lower()
+    use_preset = use_preset_value in ("1", "true", "yes", "on")
+    if use_preset:
+        try:
+            amount_decimal = Decimal(str(preset["usd_amount"]))
+        except (InvalidOperation, ValueError):
+            return RedirectResponse(
+                f"/admin/payments?error={quote_plus('Preset amount is invalid')}",
+                status_code=303,
+            )
+    else:
+        try:
+            amount_decimal = Decimal(base_amount)
+        except (InvalidOperation, ValueError):
+            return RedirectResponse(
+                f"/admin/payments?error={quote_plus('Invalid amount')}",
+                status_code=303,
+            )
+
+    title_value = title.strip() or preset["title"]
+    description_value = description.strip() or preset["description"]
+
+    try:
+        payment = payment_service.create_payment(
+            db=db,
+            title=title_value,
+            description=description_value or None,
+            network=network_code,
+            base_amount=amount_decimal,
+            ttl_minutes=ttl_minutes,
+            metadata={
+                "created_from": "quick_payments",
+                "created_by": admin.username,
+                "quick_preset_id": preset["id"],
+                "price_model": "usd_fixed",
+                "quick_preset_amount_usd": preset["usd_amount"],
+                "quick_amount_mode": "preset_fixed" if use_preset else "custom_override",
+            },
+        )
+    except Exception as exc:
+        return RedirectResponse(
+            f"/admin/payments?error={quote_plus(str(exc))}",
+            status_code=303,
+        )
+
+    return RedirectResponse(
+        f"/admin/payments/{payment.id}?info={quote_plus('Quick invoice created')}",
+        status_code=303,
+    )
+
+
 @router.get("/payments/new")
 def new_payment_page(request: Request, db: Session = Depends(get_db)):
     admin = _current_admin(request, db)
@@ -678,6 +945,7 @@ def new_payment_page(request: Request, db: Session = Depends(get_db)):
 def create_payment_page(
     request: Request,
     title: str = Form(...),
+    currency: str = Form("USDT"),
     network: str = Form(...),
     base_amount: str = Form(...),
     description: str = Form(""),
@@ -692,6 +960,7 @@ def create_payment_page(
 
     values = {
         "title": title,
+        "currency": currency,
         "network": network,
         "base_amount": base_amount,
         "description": description,
@@ -728,12 +997,29 @@ def create_payment_page(
             ),
         )
 
+    network_code = network.strip().lower()
+    selected_currency = currency.strip().upper() or "USDT"
+    expected_currency = _network_currency(network_code)
+    if selected_currency != expected_currency:
+        return templates.TemplateResponse(
+            "payment_new.html",
+            _page_context(
+                request,
+                admin,
+                error="Выбранная валюта не соответствует сети",
+                values=values,
+                network_options=payment_service.network_options(),
+                default_ttl=settings.payment_ttl_minutes,
+            ),
+            status_code=400,
+        )
+
     try:
         payment = payment_service.create_payment(
             db=db,
             title=title,
             description=description or None,
-            network=network,
+            network=network_code,
             base_amount=amount_decimal,
             ttl_minutes=ttl_minutes,
             external_id=external_id.strip() or None,

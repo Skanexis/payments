@@ -1387,6 +1387,33 @@ textarea {
   padding: 0.18rem 0.36rem;
 }
 
+.event-stack {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.event-title {
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.event-tone-success {
+  color: #177b54;
+}
+
+.event-tone-warn {
+  color: #916000;
+}
+
+.event-tone-danger {
+  color: #9a243b;
+}
+
+.event-tone-info,
+.event-tone-muted {
+  color: #2748aa;
+}
+
 .log-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -1555,6 +1582,194 @@ textarea {
   width: min(450px, 100%);
 }
 
+.quick-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.quick-card {
+  display: grid;
+  gap: 0.75rem;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.76), rgba(236, 242, 255, 0.72));
+}
+
+.quick-head {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  gap: 0.55rem;
+  align-items: center;
+}
+
+.quick-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid rgba(72, 92, 140, 0.28);
+  background: linear-gradient(145deg, #dee7ff, #f1f5ff);
+  position: relative;
+}
+
+.quick-icon::before,
+.quick-icon::after {
+  content: "";
+  position: absolute;
+}
+
+.quick-calendar::before {
+  left: 7px;
+  right: 7px;
+  top: 8px;
+  bottom: 7px;
+  border: 1px solid rgba(47, 75, 171, 0.74);
+  border-radius: 5px;
+}
+
+.quick-calendar::after {
+  left: 8px;
+  right: 8px;
+  top: 12px;
+  height: 1px;
+  background: rgba(47, 75, 171, 0.74);
+}
+
+.quick-rocket::before {
+  left: 12px;
+  top: 6px;
+  width: 10px;
+  height: 16px;
+  border-radius: 999px 999px 5px 5px;
+  border: 1px solid rgba(47, 75, 171, 0.74);
+  transform: rotate(28deg);
+}
+
+.quick-rocket::after {
+  left: 15px;
+  bottom: 6px;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(255, 152, 47, 0.95);
+}
+
+.quick-shield::before {
+  left: 9px;
+  right: 9px;
+  top: 6px;
+  bottom: 6px;
+  border-radius: 9px 9px 11px 11px;
+  border: 1px solid rgba(47, 75, 171, 0.74);
+}
+
+.quick-shield::after {
+  left: 15px;
+  top: 12px;
+  width: 4px;
+  height: 8px;
+  border: solid #1d8a5d;
+  border-width: 0 2px 2px 0;
+  transform: rotate(42deg);
+}
+
+.quick-spark::before,
+.quick-spark::after {
+  left: 16px;
+  top: 8px;
+  width: 2px;
+  height: 18px;
+  background: #2f4bff;
+}
+
+.quick-spark::after {
+  left: 8px;
+  top: 16px;
+  width: 18px;
+  height: 2px;
+}
+
+.quick-form {
+  gap: 0.65rem;
+}
+
+.quick-form textarea {
+  min-height: 78px;
+}
+
+.quick-price-badge {
+  margin-left: auto;
+  border: 1px solid rgba(47, 75, 171, 0.3);
+  border-radius: 999px;
+  background: rgba(223, 234, 255, 0.8);
+  color: #2f4baf;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 0.22rem 0.52rem;
+  white-space: nowrap;
+}
+
+.quick-lock-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.quick-lock-row input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+}
+
+.input-locked {
+  background: linear-gradient(180deg, #f5f8ff, #eef3ff);
+  border-color: #b7c8ea;
+}
+
+.metric-help {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.68), rgba(235, 242, 255, 0.7));
+}
+
+.metric-help-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.metric-help-item {
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.62);
+  padding: 0.5rem 0.56rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  font-size: 0.83rem;
+  line-height: 1.35;
+}
+
+.metric-help-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  margin-top: 0.22rem;
+  flex: none;
+}
+
+.dot-ok {
+  background: #18a26d;
+}
+
+.dot-warn {
+  background: #d09225;
+}
+
+.dot-info {
+  background: #3562d8;
+}
+
 @media (max-width: 1080px) {
   .admin-layout {
     grid-template-columns: 1fr;
@@ -1665,6 +1880,23 @@ textarea {
 
   .kpi-grid {
     grid-template-columns: 1fr;
+  }
+
+  .metric-help-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .quick-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .quick-head {
+    grid-template-columns: 34px minmax(0, 1fr);
+  }
+
+  .quick-price-badge {
+    grid-column: 1 / -1;
+    justify-self: flex-start;
   }
 
   .donut-layout {

@@ -42,7 +42,7 @@
     <div class="panel-head">
       <div>
         <h2 class="panel-title">Latest Events</h2>
-        <p class="panel-subtitle">До 300 последних записей с event code и пояснениями.</p>
+        <p class="panel-subtitle">До 300 последних записей с event code, расшифровкой и контекстом.</p>
       </div>
     </div>
 
@@ -52,8 +52,8 @@
           <tr>
             <th>Time</th>
             <th>Level</th>
-            <th>Event Code</th>
-            <th>Message</th>
+            <th>Event</th>
+            <th>Meaning</th>
             <th>Details</th>
           </tr>
         </thead>
@@ -62,9 +62,17 @@
             <tr class="log-row" data-level="{{ row.level_key }}">
               <td data-label="Time">{{ row.item.created_at|dt }}</td>
               <td data-label="Level"><span class="log-pill log-{{ row.level_tone }}">{{ row.level_label }}</span></td>
-              <td data-label="Event Code"><span class="event-code mono">{{ row.event_code }}</span></td>
-              <td data-label="Message">
+              <td data-label="Event">
+                <div class="event-stack">
+                  <span class="event-code mono">{{ row.event_code }}</span>
+                  <span class="event-title event-tone-{{ row.event_tone }}">{{ row.event_title }}</span>
+                </div>
+              </td>
+              <td data-label="Meaning">
                 <div>{{ row.item.message }}</div>
+                {% if row.event_description %}
+                  <div class="subline">{{ row.event_description }}</div>
+                {% endif %}
                 {% if row.reason %}
                   <div class="subline">reason: {{ row.reason }}</div>
                 {% endif %}

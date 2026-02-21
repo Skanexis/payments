@@ -78,12 +78,13 @@ class PaymentService:
         options: list[dict[str, Any]] = []
         for network, info in self.get_networks().items():
             wallet = self.get_network_wallet(network)
-            input_currency = "USD" if network == "btc" else info.asset_symbol
+            input_currency = "USD"
             options.append(
                 {
                     "code": info.code,
                     "title": info.title,
                     "asset_symbol": info.asset_symbol,
+                    "currency": info.asset_symbol,
                     "input_currency": input_currency,
                     "wallet": wallet,
                     "configured": bool(wallet),

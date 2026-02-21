@@ -25,21 +25,37 @@
           <input type="text" name="external_id" value="{{ values.external_id or '' }}" placeholder="order-1001">
         </label>
 
-        <label class="field">
-          <span class="field-label">Network</span>
-          <select id="network-select" name="network" required>
-            {% for option in network_options %}
-              <option value="{{ option.code }}" data-input-currency="{{ option.input_currency }}" {% if values.network == option.code %}selected{% endif %} {% if not option.configured %}disabled{% endif %}>
-                {{ option.title }} {% if not option.configured %}(wallet не настроен){% endif %}
-              </option>
-            {% endfor %}
-          </select>
-        </label>
+        <div class="form-grid">
+          <label class="field">
+            <span class="field-label">Currency</span>
+            <select id="currency-select" name="currency" required>
+              <option value="USDT" {% if (values.currency or 'USDT') == 'USDT' %}selected{% endif %}>USDT</option>
+              <option value="BTC" {% if values.currency == 'BTC' %}selected{% endif %}>BTC</option>
+            </select>
+          </label>
+          <label class="field">
+            <span class="field-label">Network</span>
+            <select id="network-select" name="network" required>
+              {% for option in network_options %}
+                <option
+                  value="{{ option.code }}"
+                  data-currency="{{ option.currency }}"
+                  data-input-currency="{{ option.input_currency }}"
+                  {% if values.network == option.code %}selected{% endif %}
+                  {% if not option.configured %}disabled{% endif %}
+                >
+                  {{ option.title }} {% if not option.configured %}(wallet не настроен){% endif %}
+                </option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
 
         <div class="form-grid">
           <label class="field">
-            <span id="amount-label" class="field-label">Base Amount</span>
-            <input type="text" name="base_amount" required value="{{ values.base_amount or '' }}" placeholder="50.00">
+            <span id="amount-label" class="field-label">Price (USD)</span>
+            <input type="text" name="base_amount" required value="{{ values.base_amount or '' }}" placeholder="19.90">
+            <span class="field-note">USD фиксируется в инвойсе. Для BTC конвертация происходит в момент создания.</span>
           </label>
           <label class="field">
             <span class="field-label">TTL (minutes)</span>
@@ -78,7 +94,7 @@
         <ul class="hint-list">
           <li>Клиент переводит только сумму, выданную инвойсом.</li>
           <li>Сеть должна совпадать с выбранной в инвойсе.</li>
-          <li>Для BTC вводите сумму в USD, курс фиксируется на TTL инвойса.</li>
+          <li>Цена всегда задается в USD; курс для BTC фиксируется на TTL.</li>
           <li>Не настроенные сети автоматически отключены.</li>
         </ul>
       </div>
@@ -89,22 +105,50 @@
     (function () {
       const form = document.querySelector("form");
       const btn = document.getElementById("create-btn");
+      const currencySelect = document.getElementById("currency-select");
       const networkSelect = document.getElementById("network-select");
       const amountLabel = document.getElementById("amount-label");
       if (!form || !btn) {
         return;
       }
 
+      const filterNetworks = () => {
+        if (!currencySelect || !networkSelect) {
+          return;
+        }
+        const selectedCurrency = currencySelect.value || "USDT";
+        let firstAllowed = "";
+        for (const option of Array.from(networkSelect.options)) {
+          const optionCurrency = option.dataset.currency || "USDT";
+          const allowed = optionCurrency === selectedCurrency && !option.disabled;
+          option.hidden = !allowed;
+          if (allowed && !firstAllowed) {
+            firstAllowed = option.value;
+          }
+        }
+        const selected = networkSelect.options[networkSelect.selectedIndex];
+        if (!selected || selected.hidden) {
+          networkSelect.value = firstAllowed;
+        }
+      };
+
       const updateAmountLabel = () => {
         if (!networkSelect || !amountLabel) {
           return;
         }
         const selected = networkSelect.options[networkSelect.selectedIndex];
-        const currency = selected ? (selected.dataset.inputCurrency || "USDT") : "USDT";
-        amountLabel.textContent = "Base Amount (" + currency + ")";
+        const currency = selected ? (selected.dataset.inputCurrency || "USD") : "USD";
+        amountLabel.textContent = "Price (" + currency + ")";
       };
 
+      filterNetworks();
       updateAmountLabel();
+      if (currencySelect) {
+        currencySelect.addEventListener("change", function () {
+          filterNetworks();
+          updateAmountLabel();
+        });
+      }
       if (networkSelect) {
         networkSelect.addEventListener("change", updateAmountLabel);
       }
