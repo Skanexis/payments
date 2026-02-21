@@ -51,3 +51,44 @@ class PaymentStatusResponse(BaseModel):
     confirmations: int
     required_confirmations: int
     updated_at: str
+
+
+class QuickTemplateBase(BaseModel):
+    title: str = Field(min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=5000)
+    usd_amount: Decimal = Field(gt=Decimal("0"))
+    ttl_minutes: int = Field(ge=1, le=1440)
+    usdt_network: Literal["tron_usdt", "bsc_usdt", "eth_usdt"] = "tron_usdt"
+    is_active: bool = True
+
+
+class QuickTemplateCreateRequest(QuickTemplateBase):
+    pass
+
+
+class QuickTemplateUpdateRequest(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=5000)
+    usd_amount: Decimal | None = Field(default=None, gt=Decimal("0"))
+    ttl_minutes: int | None = Field(default=None, ge=1, le=1440)
+    usdt_network: Literal["tron_usdt", "bsc_usdt", "eth_usdt"] | None = None
+    is_active: bool | None = None
+
+
+class QuickTemplateResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    title: str
+    description: str | None
+    usd_amount: str
+    ttl_minutes: int
+    usdt_network: str
+    is_active: bool
+    created_by: str | None
+    created_at: str
+    updated_at: str
+
+
+class QuickCreateFromTemplateRequest(BaseModel):
+    currency: Literal["USDT", "BTC"] = "USDT"

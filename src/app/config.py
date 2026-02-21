@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     admin_password: str = "change-me-admin-password"
     admin_login_max_attempts: int = 5
     admin_login_window_minutes: int = 15
+    admin_api_rate_limit_per_minute: int = 120
 
     payment_ttl_minutes: int = 30
     payment_ttl_min_minutes: int = 3
@@ -45,6 +46,8 @@ class Settings(BaseSettings):
     monitor_interval_seconds: int = 20
     monitor_lookback_minutes: int = 240
     monitor_track_unmatched_transfers: bool = True
+    dashboard_stats_cache_seconds: int = 15
+    quick_templates_max_count: int = 300
 
     tron_wallet_address: str = ""
     tron_usdt_contract: str = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"

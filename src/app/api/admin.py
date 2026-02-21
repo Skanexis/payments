@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import datetime, timedelta
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from hmac import compare_digest
 from secrets import token_urlsafe
 from threading import Lock
@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..db import get_db
-from ..models import AdminUser, ObservedTransfer, Payment, PaymentLog, PaymentStatus
+from ..models import AdminUser, ObservedTransfer, Payment, PaymentLog, PaymentStatus, QuickPaymentTemplate
 from ..security import verify_password
 from ..services.blockchain_clients import BscUsdtClient, BtcClient, EthUsdtClient, TronUsdtClient
 from ..services.payment_service import PaymentService
@@ -168,46 +168,24 @@ LOG_EVENT_META: dict[str, dict[str, str]] = {
         "description": "Invoice was cancelled by administrator.",
         "tone": "warn",
     },
+    "TEMPLATE_CREATED": {
+        "title": "Template Created",
+        "description": "Quick payment template added in admin panel.",
+        "tone": "info",
+    },
+    "TEMPLATE_UPDATED": {
+        "title": "Template Updated",
+        "description": "Quick payment template was edited.",
+        "tone": "info",
+    },
 }
 
 CSRF_SESSION_KEY = "csrf_token"
 _login_attempts: dict[str, list[datetime]] = defaultdict(list)
 _login_attempts_lock = Lock()
-
-QUICK_PAYMENT_PRESETS: list[dict[str, str]] = [
-    {
-        "id": "sub_30",
-        "title": "Subscription 30 days",
-        "description": "Доступ на 30 дней",
-        "usd_amount": "9.90",
-        "ttl_minutes": "60",
-        "icon": "calendar",
-    },
-    {
-        "id": "sub_90",
-        "title": "Subscription 90 days",
-        "description": "Расширенный доступ на 90 дней",
-        "usd_amount": "24.90",
-        "ttl_minutes": "60",
-        "icon": "rocket",
-    },
-    {
-        "id": "pro_support",
-        "title": "Pro Support",
-        "description": "Приоритетная поддержка и SLA",
-        "usd_amount": "49.00",
-        "ttl_minutes": "90",
-        "icon": "shield",
-    },
-    {
-        "id": "lifetime",
-        "title": "Lifetime Access",
-        "description": "Постоянный доступ без продления",
-        "usd_amount": "129.00",
-        "ttl_minutes": "120",
-        "icon": "spark",
-    },
-]
+USDT_NETWORK_CHOICES = ("tron_usdt", "bsc_usdt", "eth_usdt")
+_dashboard_cache_lock = Lock()
+_dashboard_cache: dict[str, Any] = {"expires_at": None, "enterprise": None}
 
 
 def _redirect_to_login() -> RedirectResponse:
@@ -293,12 +271,82 @@ def _network_currency(network: str) -> str:
     return "USDT"
 
 
-def _find_quick_preset(preset_id: str) -> dict[str, str] | None:
-    preset_key = preset_id.strip().lower()
-    for item in QUICK_PAYMENT_PRESETS:
-        if item["id"].lower() == preset_key:
-            return item
-    return None
+def _default_usdt_network() -> str:
+    for network in USDT_NETWORK_CHOICES:
+        if payment_service.get_network_wallet(network):
+            return network
+    return USDT_NETWORK_CHOICES[0]
+
+
+def _resolve_template_network(currency: str, usdt_network: str) -> str:
+    normalized_currency = currency.strip().upper()
+    if normalized_currency == "BTC":
+        return "btc"
+    if normalized_currency == "USDT":
+        return usdt_network
+    raise ValueError("Unsupported currency")
+
+
+def _validate_usdt_network(network: str) -> str:
+    normalized = network.strip().lower()
+    if normalized not in USDT_NETWORK_CHOICES:
+        raise ValueError("USDT network must be one of tron_usdt, bsc_usdt, eth_usdt")
+    return normalized
+
+
+def _format_usd_value(value: Decimal | str | float | int) -> str:
+    return format_amount(_safe_decimal(value), precision=2)
+
+
+def _validate_template_amount(value: Decimal) -> Decimal:
+    normalized = value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    usdt_min = _safe_decimal(settings.payment_min_base_amount)
+    usdt_max = _safe_decimal(settings.payment_max_base_amount)
+    btc_min = _safe_decimal(settings.btc_min_base_amount)
+    btc_max = _safe_decimal(settings.btc_max_base_amount)
+    min_allowed = max(usdt_min, btc_min)
+    max_allowed = min(usdt_max, btc_max)
+
+    if normalized < min_allowed:
+        raise ValueError(f"Template amount must be >= {_format_usd_value(min_allowed)} USD")
+    if normalized > max_allowed:
+        raise ValueError(f"Template amount must be <= {_format_usd_value(max_allowed)} USD")
+    return normalized
+
+
+def _serialize_template(template: QuickPaymentTemplate) -> dict[str, Any]:
+    created_at = ensure_utc(template.created_at)
+    updated_at = ensure_utc(template.updated_at)
+    return {
+        "id": template.id,
+        "title": template.title,
+        "description": template.description or "",
+        "usd_amount": _safe_decimal(template.usd_amount),
+        "usd_amount_text": _format_usd_value(template.usd_amount),
+        "ttl_minutes": template.ttl_minutes,
+        "usdt_network": template.usdt_network,
+        "is_active": bool(template.is_active),
+        "created_by": template.created_by or "",
+        "created_at": created_at,
+        "updated_at": updated_at,
+    }
+
+
+def _list_template_rows(db: Session) -> list[dict[str, Any]]:
+    rows = db.scalars(
+        select(QuickPaymentTemplate).order_by(
+            QuickPaymentTemplate.is_active.desc(),
+            QuickPaymentTemplate.updated_at.desc(),
+        )
+    ).all()
+    return [_serialize_template(item) for item in rows]
+
+
+def _invalidate_dashboard_cache() -> None:
+    with _dashboard_cache_lock:
+        _dashboard_cache["enterprise"] = None
+        _dashboard_cache["expires_at"] = None
 
 
 def _safe_decimal(value: Any) -> Decimal:
@@ -526,6 +574,25 @@ def _build_enterprise_stats(db: Session, payments: list[Payment]) -> dict[str, A
         "stale_active_count": stale_active_count,
         "network_rows": network_rows,
     }
+
+
+def _get_enterprise_stats_cached(db: Session, payments: list[Payment]) -> dict[str, Any]:
+    cache_seconds = max(0, settings.dashboard_stats_cache_seconds)
+    if cache_seconds == 0:
+        return _build_enterprise_stats(db, payments)
+
+    now = utcnow()
+    with _dashboard_cache_lock:
+        cached_stats = _dashboard_cache.get("enterprise")
+        expires_at = _dashboard_cache.get("expires_at")
+        if cached_stats is not None and isinstance(expires_at, datetime) and now < expires_at:
+            return cached_stats
+
+    enterprise = _build_enterprise_stats(db, payments)
+    with _dashboard_cache_lock:
+        _dashboard_cache["enterprise"] = enterprise
+        _dashboard_cache["expires_at"] = now + timedelta(seconds=cache_seconds)
+    return enterprise
 
 
 def _build_log_rows(logs: list[PaymentLog]) -> list[dict[str, Any]]:
@@ -780,7 +847,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         or 0
     )
 
-    enterprise = _build_enterprise_stats(db, payments_for_stats)
+    enterprise = _get_enterprise_stats_cached(db, payments_for_stats)
 
     return templates.TemplateResponse(
         "admin_dashboard.html",
@@ -806,6 +873,7 @@ def payments_page(request: Request, db: Session = Depends(get_db)):
         return _redirect_to_login()
 
     payments = db.scalars(select(Payment).order_by(Payment.created_at.desc()).limit(200)).all()
+    network_options = payment_service.network_options()
     error = request.query_params.get("error")
     info = request.query_params.get("info")
 
@@ -815,26 +883,237 @@ def payments_page(request: Request, db: Session = Depends(get_db)):
             request,
             admin,
             payments=payments,
-            network_options=payment_service.network_options(),
-            quick_presets=QUICK_PAYMENT_PRESETS,
-            default_ttl=settings.payment_ttl_minutes,
+            quick_templates=_list_template_rows(db),
+            network_options=network_options,
+            usdt_network_options=[item for item in network_options if item["code"] in USDT_NETWORK_CHOICES],
+            default_template_ttl=settings.payment_ttl_minutes,
+            default_template_usdt_network=_default_usdt_network(),
+            quick_template_limit=max(1, settings.quick_templates_max_count),
             error=error,
             info=info,
         ),
     )
 
 
+@router.post("/payments/templates/new")
+def create_quick_template(
+    request: Request,
+    title: str = Form(...),
+    description: str = Form(""),
+    usd_amount: str = Form(...),
+    ttl_minutes: int = Form(...),
+    usdt_network: str = Form("tron_usdt"),
+    is_active: bool = Form(False),
+    csrf_token: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    admin = _current_admin(request, db)
+    if admin is None:
+        return _redirect_to_login()
+    if not _validate_csrf(request, csrf_token):
+        return RedirectResponse(
+            f"/admin/payments?error={quote_plus('Session expired. Refresh and try again')}",
+            status_code=303,
+        )
+
+    existing_count = db.scalar(select(func.count()).select_from(QuickPaymentTemplate)) or 0
+    if existing_count >= max(1, settings.quick_templates_max_count):
+        return RedirectResponse(
+            f"/admin/payments?error={quote_plus('Template limit reached. Delete or deactivate old templates.')}",
+            status_code=303,
+        )
+
+    title_value = title.strip()
+    if not title_value:
+        return RedirectResponse(
+            f"/admin/payments?error={quote_plus('Template title is required')}",
+            status_code=303,
+        )
+    if len(title_value) > 255:
+        return RedirectResponse(
+            f"/admin/payments?error={quote_plus('Template title is too long (max 255)')}",
+            status_code=303,
+        )
+
+    description_value = description.strip()
+    if len(description_value) > 5000:
+        return RedirectResponse(
+            f"/admin/payments?error={quote_plus('Template description is too long (max 5000)')}",
+            status_code=303,
+        )
+
+    try:
+        amount_decimal = Decimal(usd_amount)
+    except (InvalidOperation, ValueError):
+        return RedirectResponse(
+            f"/admin/payments?error={quote_plus('Invalid USD amount')}",
+            status_code=303,
+        )
+    try:
+        amount_decimal = _validate_template_amount(amount_decimal)
+    except ValueError as exc:
+        return RedirectResponse(
+            f"/admin/payments?error={quote_plus(str(exc))}",
+            status_code=303,
+        )
+
+    try:
+        usdt_network_code = _validate_usdt_network(usdt_network)
+    except ValueError as exc:
+        return RedirectResponse(
+            f"/admin/payments?error={quote_plus(str(exc))}",
+            status_code=303,
+        )
+
+    if ttl_minutes < settings.payment_ttl_min_minutes or ttl_minutes > settings.payment_ttl_max_minutes:
+        return RedirectResponse(
+            f"/admin/payments?error={quote_plus('TTL is out of allowed range')}",
+            status_code=303,
+        )
+
+    now = utcnow()
+    item = QuickPaymentTemplate(
+        title=title_value,
+        description=description_value or None,
+        usd_amount=amount_decimal,
+        ttl_minutes=ttl_minutes,
+        usdt_network=usdt_network_code,
+        is_active=bool(is_active),
+        created_by=admin.username,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(item)
+    payment_service.add_log(
+        db=db,
+        payment_id=None,
+        level="info",
+        message="Quick payment template created",
+        context={
+            "event_code": "TEMPLATE_CREATED",
+            "username": admin.username,
+            "title": title_value,
+            "quote_amount": _format_usd_value(amount_decimal),
+            "network": usdt_network_code,
+        },
+    )
+    db.commit()
+    return RedirectResponse(
+        f"/admin/payments?info={quote_plus('Template created successfully')}",
+        status_code=303,
+    )
+
+
+@router.post("/payments/templates/{template_id}/update")
+def update_quick_template(
+    template_id: int,
+    request: Request,
+    title: str = Form(...),
+    description: str = Form(""),
+    usd_amount: str = Form(...),
+    ttl_minutes: int = Form(...),
+    usdt_network: str = Form("tron_usdt"),
+    is_active: bool = Form(False),
+    csrf_token: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    admin = _current_admin(request, db)
+    if admin is None:
+        return _redirect_to_login()
+    if not _validate_csrf(request, csrf_token):
+        return RedirectResponse(
+            f"/admin/payments?error={quote_plus('Session expired. Refresh and try again')}",
+            status_code=303,
+        )
+
+    item = db.get(QuickPaymentTemplate, template_id)
+    if item is None:
+        return RedirectResponse(
+            f"/admin/payments?error={quote_plus('Template not found')}",
+            status_code=303,
+        )
+
+    title_value = title.strip()
+    if not title_value:
+        return RedirectResponse(
+            f"/admin/payments?error={quote_plus('Template title is required')}",
+            status_code=303,
+        )
+    if len(title_value) > 255:
+        return RedirectResponse(
+            f"/admin/payments?error={quote_plus('Template title is too long (max 255)')}",
+            status_code=303,
+        )
+
+    description_value = description.strip()
+    if len(description_value) > 5000:
+        return RedirectResponse(
+            f"/admin/payments?error={quote_plus('Template description is too long (max 5000)')}",
+            status_code=303,
+        )
+
+    try:
+        amount_decimal = Decimal(usd_amount)
+    except (InvalidOperation, ValueError):
+        return RedirectResponse(
+            f"/admin/payments?error={quote_plus('Invalid USD amount')}",
+            status_code=303,
+        )
+    try:
+        amount_decimal = _validate_template_amount(amount_decimal)
+    except ValueError as exc:
+        return RedirectResponse(
+            f"/admin/payments?error={quote_plus(str(exc))}",
+            status_code=303,
+        )
+
+    try:
+        usdt_network_code = _validate_usdt_network(usdt_network)
+    except ValueError as exc:
+        return RedirectResponse(
+            f"/admin/payments?error={quote_plus(str(exc))}",
+            status_code=303,
+        )
+
+    if ttl_minutes < settings.payment_ttl_min_minutes or ttl_minutes > settings.payment_ttl_max_minutes:
+        return RedirectResponse(
+            f"/admin/payments?error={quote_plus('TTL is out of allowed range')}",
+            status_code=303,
+        )
+
+    item.title = title_value
+    item.description = description_value or None
+    item.usd_amount = amount_decimal
+    item.ttl_minutes = ttl_minutes
+    item.usdt_network = usdt_network_code
+    item.is_active = bool(is_active)
+    item.updated_at = utcnow()
+
+    payment_service.add_log(
+        db=db,
+        payment_id=None,
+        level="info",
+        message="Quick payment template updated",
+        context={
+            "event_code": "TEMPLATE_UPDATED",
+            "username": admin.username,
+            "title": item.title,
+            "quote_amount": _format_usd_value(item.usd_amount),
+            "network": item.usdt_network,
+        },
+    )
+    db.commit()
+    return RedirectResponse(
+        f"/admin/payments?info={quote_plus('Template updated successfully')}",
+        status_code=303,
+    )
+
+
 @router.post("/payments/quick")
 def quick_create_payment(
     request: Request,
-    preset_id: str = Form(...),
-    network: str = Form(...),
+    template_id: int = Form(...),
     currency: str = Form("USDT"),
-    use_preset_amount: str = Form("1"),
-    base_amount: str = Form(...),
-    ttl_minutes: int = Form(...),
-    title: str = Form(""),
-    description: str = Form(""),
     csrf_token: str = Form(""),
     db: Session = Depends(get_db),
 ):
@@ -848,66 +1127,54 @@ def quick_create_payment(
             status_code=303,
         )
 
-    preset = _find_quick_preset(preset_id)
-    if preset is None:
+    item = db.get(QuickPaymentTemplate, template_id)
+    if item is None:
         return RedirectResponse(
-            f"/admin/payments?error={quote_plus('Unknown quick preset')}",
+            f"/admin/payments?error={quote_plus('Template not found')}",
+            status_code=303,
+        )
+    if not item.is_active:
+        return RedirectResponse(
+            f"/admin/payments?error={quote_plus('Template is inactive')}",
             status_code=303,
         )
 
-    network_code = network.strip().lower()
-    network_info = payment_service.get_networks().get(network_code)
-    if network_info is None:
+    try:
+        network_code = _resolve_template_network(currency, item.usdt_network)
+    except ValueError as exc:
+        return RedirectResponse(
+            f"/admin/payments?error={quote_plus(str(exc))}",
+            status_code=303,
+        )
+
+    if network_code not in payment_service.get_networks():
         return RedirectResponse(
             f"/admin/payments?error={quote_plus('Unsupported network')}",
             status_code=303,
         )
 
-    expected_currency = _network_currency(network_code)
-    selected_currency = currency.strip().upper() or "USDT"
-    if selected_currency != expected_currency:
+    if not payment_service.get_network_wallet(network_code):
         return RedirectResponse(
-            f"/admin/payments?error={quote_plus('Selected currency does not match network')}",
+            f"/admin/payments?error={quote_plus('Wallet is not configured for selected currency/network')}",
             status_code=303,
         )
-
-    use_preset_value = use_preset_amount.strip().lower()
-    use_preset = use_preset_value in ("1", "true", "yes", "on")
-    if use_preset:
-        try:
-            amount_decimal = Decimal(str(preset["usd_amount"]))
-        except (InvalidOperation, ValueError):
-            return RedirectResponse(
-                f"/admin/payments?error={quote_plus('Preset amount is invalid')}",
-                status_code=303,
-            )
-    else:
-        try:
-            amount_decimal = Decimal(base_amount)
-        except (InvalidOperation, ValueError):
-            return RedirectResponse(
-                f"/admin/payments?error={quote_plus('Invalid amount')}",
-                status_code=303,
-            )
-
-    title_value = title.strip() or preset["title"]
-    description_value = description.strip() or preset["description"]
 
     try:
         payment = payment_service.create_payment(
             db=db,
-            title=title_value,
-            description=description_value or None,
+            title=item.title,
+            description=item.description or None,
             network=network_code,
-            base_amount=amount_decimal,
-            ttl_minutes=ttl_minutes,
+            base_amount=_safe_decimal(item.usd_amount),
+            ttl_minutes=item.ttl_minutes,
             metadata={
                 "created_from": "quick_payments",
                 "created_by": admin.username,
-                "quick_preset_id": preset["id"],
+                "quick_template_id": item.id,
+                "quick_template_title": item.title,
+                "quick_template_currency": currency.strip().upper() or "USDT",
                 "price_model": "usd_fixed",
-                "quick_preset_amount_usd": preset["usd_amount"],
-                "quick_amount_mode": "preset_fixed" if use_preset else "custom_override",
+                "quick_template_amount_usd": _format_usd_value(item.usd_amount),
             },
         )
     except Exception as exc:
@@ -916,8 +1183,9 @@ def quick_create_payment(
             status_code=303,
         )
 
+    _invalidate_dashboard_cache()
     return RedirectResponse(
-        f"/admin/payments/{payment.id}?info={quote_plus('Quick invoice created')}",
+        f"/admin/payments/{payment.id}?info={quote_plus('Invoice created from template')}",
         status_code=303,
     )
 
@@ -1038,6 +1306,7 @@ def create_payment_page(
             ),
         )
 
+    _invalidate_dashboard_cache()
     return RedirectResponse(f"/admin/payments/{payment.id}", status_code=303)
 
 
@@ -1110,6 +1379,7 @@ def cancel_payment(
             context={"event_code": "PAYMENT_CANCELLED_MANUALLY", "cancelled_by": admin.username},
         )
         db.commit()
+        _invalidate_dashboard_cache()
 
     return RedirectResponse(f"/admin/payments/{payment.id}", status_code=303)
 
@@ -1152,6 +1422,7 @@ def manual_mark_paid(
                 f"/admin/payments/{payment.id}?error={quote_plus(str(exc))}",
                 status_code=303,
             )
+        _invalidate_dashboard_cache()
         return RedirectResponse(
             f"/admin/payments/{payment.id}?info={quote_plus('Marked as paid manually')}",
             status_code=303,

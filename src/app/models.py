@@ -42,6 +42,7 @@ class Payment(Base):
     __table_args__ = (
         Index("ix_payments_status_network", "status", "network"),
         Index("ix_payments_created_at", "created_at"),
+        Index("ix_payments_updated_at", "updated_at"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
@@ -111,6 +112,7 @@ class ObservedTransfer(Base):
     __table_args__ = (
         Index("ix_observed_transfers_network_time", "network", "transfer_timestamp"),
         Index("ix_observed_transfers_match_status", "match_status"),
+        Index("ix_observed_transfers_last_seen_at", "last_seen_at"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -129,3 +131,22 @@ class ObservedTransfer(Base):
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
     raw_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class QuickPaymentTemplate(Base):
+    __tablename__ = "quick_payment_templates"
+    __table_args__ = (
+        Index("ix_quick_templates_active_updated", "is_active", "updated_at"),
+        Index("ix_quick_templates_created_at", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    usd_amount: Mapped[Decimal] = mapped_column(Numeric(24, 8), nullable=False)
+    ttl_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
+    usdt_network: Mapped[str] = mapped_column(String(32), nullable=False, default=NetworkCode.tron_usdt.value)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)

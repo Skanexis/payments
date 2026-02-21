@@ -1695,6 +1695,13 @@ textarea {
   min-height: 78px;
 }
 
+.quick-template-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
 .quick-price-badge {
   margin-left: auto;
   border: 1px solid rgba(47, 75, 171, 0.3);
@@ -1897,6 +1904,12 @@ textarea {
   .quick-price-badge {
     grid-column: 1 / -1;
     justify-self: flex-start;
+  }
+
+  .quick-template-meta {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.25rem;
   }
 
   .donut-layout {

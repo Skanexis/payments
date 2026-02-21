@@ -3,7 +3,7 @@
   <section class="page-head">
     <div>
       <h1 class="page-title">Payments</h1>
-      <p class="page-subtitle">Быстрое создание инвойсов по шаблонам. Цена всегда задается в USD.</p>
+      <p class="page-subtitle">Создавайте свои шаблоны быстрых инвойсов в USD и выпускайте счета одним кликом, меняя только валюту.</p>
     </div>
     <div class="actions">
       <a class="btn btn-outline" href="/admin/payments/new">Advanced Form</a>
@@ -17,84 +17,156 @@
     <div class="alert alert-success">{{ info }}</div>
   {% endif %}
 
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <h2 class="panel-title">Template Builder</h2>
+        <p class="panel-subtitle">Добавьте новый шаблон быстрых платежей. Лимит: {{ quick_template_limit }} шаблонов.</p>
+      </div>
+    </div>
+
+    <form method="post" action="/admin/payments/templates/new" class="create-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="form-grid">
+        <label class="field">
+          <span class="field-label">Template Name</span>
+          <input type="text" name="title" required maxlength="255" placeholder="Subscription 30 days">
+        </label>
+        <label class="field">
+          <span class="field-label">Price (USD)</span>
+          <input type="text" name="usd_amount" required placeholder="9.90">
+        </label>
+      </div>
+      <div class="form-grid">
+        <label class="field">
+          <span class="field-label">TTL (minutes)</span>
+          <input type="number" name="ttl_minutes" min="1" max="1440" value="{{ default_template_ttl }}" required>
+        </label>
+        <label class="field">
+          <span class="field-label">USDT Network (default)</span>
+          <select name="usdt_network" required>
+            {% for option in usdt_network_options %}
+              <option value="{{ option.code }}" {% if option.code == default_template_usdt_network %}selected{% endif %}>
+                {{ option.title }}
+              </option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+      <label class="field">
+        <span class="field-label">Description</span>
+        <textarea name="description" placeholder="Детали, которые попадут в инвойс"></textarea>
+      </label>
+      <label class="quick-lock-row">
+        <input type="checkbox" name="is_active" value="1" checked>
+        <span>Template is active</span>
+      </label>
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Create Template</button>
+      </div>
+    </form>
+  </section>
+
   <section class="quick-grid">
-    {% for preset in quick_presets %}
+    {% for template in quick_templates %}
+      {% set usdt_label = "USDT (TRC20)" %}
+      {% if template.usdt_network == "bsc_usdt" %}
+        {% set usdt_label = "USDT (BEP20)" %}
+      {% elif template.usdt_network == "eth_usdt" %}
+        {% set usdt_label = "USDT (ERC20)" %}
+      {% endif %}
       <article class="panel quick-card">
         <div class="quick-head">
-          <span class="quick-icon quick-{{ preset.icon }}"></span>
+          <span class="quick-icon quick-calendar"></span>
           <div>
-            <h2 class="panel-title">{{ preset.title }}</h2>
-            <p class="panel-subtitle">{{ preset.description }}</p>
+            <h2 class="panel-title">{{ template.title }}</h2>
+            <p class="panel-subtitle">{{ template.description or "Без описания" }}</p>
           </div>
-          <span class="quick-price-badge">Preset: {{ preset.usd_amount }} USD</span>
+          <span class="quick-price-badge">{{ template.usd_amount_text }} USD</span>
         </div>
 
-        <form method="post" action="/admin/payments/quick" class="quick-form" data-quick-form>
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <input type="hidden" name="preset_id" value="{{ preset.id }}">
-          <input type="hidden" name="use_preset_amount" value="1" data-lock-field>
+        <div class="quick-template-meta">
+          <span class="status-pill {% if template.is_active %}status-paid{% else %}status-expired{% endif %}">
+            {% if template.is_active %}active{% else %}inactive{% endif %}
+          </span>
+          <span class="subline">USDT network: <span class="mono">{{ template.usdt_network }}</span></span>
+          <span class="subline">Updated: {{ template.updated_at|dt }}</span>
+        </div>
 
-          <label class="field">
-            <span class="field-label">Title</span>
-            <input type="text" name="title" value="{{ preset.title }}">
-          </label>
+        <form method="post" action="/admin/payments/quick" class="quick-form" data-quick-create-form>
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="template_id" value="{{ template.id }}">
+          <input type="hidden" data-usdt-network value="{{ template.usdt_network }}">
+          <input type="hidden" data-usdt-label value="{{ usdt_label }}">
 
           <div class="form-grid">
             <label class="field">
               <span class="field-label">Currency</span>
-              <select name="currency" data-currency-select required>
+              <select name="currency" data-currency-select {% if not template.is_active %}disabled{% endif %}>
                 <option value="USDT">USDT</option>
                 <option value="BTC">BTC</option>
               </select>
             </label>
             <label class="field">
-              <span class="field-label">Network</span>
-              <select name="network" data-network-select required>
-                {% for option in network_options %}
-                  <option
-                    value="{{ option.code }}"
-                    data-currency="{{ option.currency }}"
-                    {% if not option.configured %}disabled{% endif %}
-                  >
-                    {{ option.title }} {% if not option.configured %}(wallet не настроен){% endif %}
+              <span class="field-label">Network (auto)</span>
+              <input type="text" data-network-preview value="{{ usdt_label }}" readonly>
+            </label>
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary" {% if not template.is_active %}disabled{% endif %}>Create Invoice</button>
+          </div>
+        </form>
+
+        <form method="post" action="/admin/payments/templates/{{ template.id }}/update" class="quick-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+          <div class="form-grid">
+            <label class="field">
+              <span class="field-label">Template Name</span>
+              <input type="text" name="title" value="{{ template.title }}" required maxlength="255">
+            </label>
+            <label class="field">
+              <span class="field-label">Price (USD)</span>
+              <input type="text" name="usd_amount" value="{{ template.usd_amount_text }}" required>
+            </label>
+          </div>
+
+          <div class="form-grid">
+            <label class="field">
+              <span class="field-label">TTL (minutes)</span>
+              <input type="number" name="ttl_minutes" min="1" max="1440" value="{{ template.ttl_minutes }}" required>
+            </label>
+            <label class="field">
+              <span class="field-label">USDT Network</span>
+              <select name="usdt_network" required>
+                {% for option in usdt_network_options %}
+                  <option value="{{ option.code }}" {% if option.code == template.usdt_network %}selected{% endif %}>
+                    {{ option.title }}
                   </option>
                 {% endfor %}
               </select>
             </label>
           </div>
 
-          <div class="form-grid">
-            <div class="field">
-              <span class="field-label">Price (USD)</span>
-              <input
-                type="text"
-                name="base_amount"
-                value="{{ preset.usd_amount }}"
-                data-amount-input
-                data-preset-amount="{{ preset.usd_amount }}"
-                required
-              >
-              <label class="quick-lock-row">
-                <input type="checkbox" data-lock-toggle checked>
-                <span>Use fixed preset amount</span>
-              </label>
-              <span class="field-note">Отключите фиксацию, если нужна ручная цена для разового инвойса.</span>
-            </div>
-            <label class="field">
-              <span class="field-label">TTL (minutes)</span>
-              <input type="number" name="ttl_minutes" min="1" max="1440" value="{{ preset.ttl_minutes }}" required>
-            </label>
-          </div>
-
           <label class="field">
             <span class="field-label">Description</span>
-            <textarea name="description">{{ preset.description }}</textarea>
+            <textarea name="description">{{ template.description }}</textarea>
+          </label>
+
+          <label class="quick-lock-row">
+            <input type="checkbox" name="is_active" value="1" {% if template.is_active %}checked{% endif %}>
+            <span>Template is active</span>
           </label>
 
           <div class="form-actions">
-            <button type="submit" class="btn btn-primary" data-submit-btn>Create Quick Invoice</button>
+            <button type="submit" class="btn btn-outline">Save Template</button>
           </div>
         </form>
+      </article>
+    {% else %}
+      <article class="panel">
+        <p class="subline">Шаблоны пока не созданы. Добавьте первый шаблон через Template Builder.</p>
       </article>
     {% endfor %}
   </section>
@@ -140,88 +212,37 @@
 
   <script>
     (function () {
-      const forms = Array.from(document.querySelectorAll("[data-quick-form]"));
+      const forms = Array.from(document.querySelectorAll("[data-quick-create-form]"));
       if (!forms.length) {
         return;
       }
 
-      const syncFormNetworks = (form) => {
+      const syncNetworkPreview = (form) => {
         const currencySelect = form.querySelector("[data-currency-select]");
-        const networkSelect = form.querySelector("[data-network-select]");
-        if (!currencySelect || !networkSelect) {
+        const usdtNetwork = form.querySelector("[data-usdt-network]");
+        const usdtLabel = form.querySelector("[data-usdt-label]");
+        const networkPreview = form.querySelector("[data-network-preview]");
+        if (!currencySelect || !networkPreview) {
           return;
         }
-
-        const selectedCurrency = currencySelect.value || "USDT";
-        let firstAllowed = "";
-        for (const option of Array.from(networkSelect.options)) {
-          const optionCurrency = option.dataset.currency || "USDT";
-          const allowed = optionCurrency === selectedCurrency && !option.disabled;
-          option.hidden = !allowed;
-          if (allowed && !firstAllowed) {
-            firstAllowed = option.value;
-          }
-        }
-        const current = networkSelect.options[networkSelect.selectedIndex];
-        if (!current || current.hidden) {
-          networkSelect.value = firstAllowed;
-        }
-      };
-
-      const syncAmountLock = (form) => {
-        const lockField = form.querySelector("[data-lock-field]");
-        const lockToggle = form.querySelector("[data-lock-toggle]");
-        const amountInput = form.querySelector("[data-amount-input]");
-        if (!lockField || !lockToggle || !amountInput) {
+        const selectedCurrency = (currencySelect.value || "USDT").toUpperCase();
+        if (selectedCurrency === "BTC") {
+          networkPreview.value = "Bitcoin (BTC)";
           return;
         }
-
-        const presetAmount = amountInput.dataset.presetAmount || "";
-        const isLocked = lockToggle.checked;
-        lockField.value = isLocked ? "1" : "0";
-        amountInput.readOnly = isLocked;
-        amountInput.classList.toggle("input-locked", isLocked);
-        if (isLocked) {
-          amountInput.value = presetAmount;
-        }
+        const label = usdtLabel ? (usdtLabel.value || "USDT") : "USDT";
+        const networkCode = usdtNetwork ? (usdtNetwork.value || "") : "";
+        networkPreview.value = label + (networkCode ? " [" + networkCode + "]" : "");
       };
 
       for (const form of forms) {
         const currencySelect = form.querySelector("[data-currency-select]");
-        const networkSelect = form.querySelector("[data-network-select]");
-        const lockToggle = form.querySelector("[data-lock-toggle]");
-        const submitBtn = form.querySelector("[data-submit-btn]");
-        syncFormNetworks(form);
-        syncAmountLock(form);
+        syncNetworkPreview(form);
         if (currencySelect) {
           currencySelect.addEventListener("change", function () {
-            syncFormNetworks(form);
+            syncNetworkPreview(form);
           });
         }
-        if (networkSelect) {
-          networkSelect.addEventListener("change", function () {
-            const selected = networkSelect.options[networkSelect.selectedIndex];
-            if (!selected) {
-              return;
-            }
-            const optionCurrency = selected.dataset.currency || "USDT";
-            if (currencySelect && currencySelect.value !== optionCurrency) {
-              currencySelect.value = optionCurrency;
-              syncFormNetworks(form);
-            }
-          });
-        }
-        if (lockToggle) {
-          lockToggle.addEventListener("change", function () {
-            syncAmountLock(form);
-          });
-        }
-        form.addEventListener("submit", function () {
-          if (submitBtn) {
-            submitBtn.disabled = true;
-            submitBtn.textContent = "Creating...";
-          }
-        });
       }
     })();
   </script>

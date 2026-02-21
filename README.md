@@ -14,11 +14,18 @@
 
 - `USAGE_GUIDE.md`
 
+## Enterprise API для разработчиков
+
+Подробная спецификация API (безопасность, rate-limit, quick templates, примеры интеграции под Telegram-бота и внешние сервисы):
+
+- `API_ENTERPRISE.md`
+
 ## Что реализовано
 
 - Web-админка:
   - логин администратора;
   - создание платежа (инвойса);
+  - быстрые шаблоны инвойсов (создание, редактирование, быстрый выпуск по выбору currency);
   - просмотр статусов (`pending` -> `confirming` -> `paid`);
   - ручная отмена/ручное подтверждение;
   - просмотр логов;
@@ -27,6 +34,8 @@
 - API:
   - публичный статус платежа;
   - защищенный admin API (по `X-API-Key`) для интеграций.
+  - CRUD quick templates + quick create из шаблона;
+  - список сетей для динамического UI/ботов;
 - Авто-мониторинг сети:
   - TRON USDT (TRC20) через Trongrid;
   - BSC USDT (BEP20) через BscScan;
@@ -184,6 +193,11 @@ PYTHONPATH=src python -m app.telegram_bot
 - `POST /api/admin/payments`
 - `GET /api/admin/payments/{payment_id}`
 - `GET /api/admin/payments?limit=50`
+- `GET /api/admin/networks`
+- `GET /api/admin/templates?limit=200`
+- `POST /api/admin/templates`
+- `PATCH /api/admin/templates/{template_id}`
+- `POST /api/admin/templates/{template_id}/quick-create`
 
 Пример создания платежа:
 
