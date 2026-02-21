@@ -54,6 +54,12 @@
           <span class="field-note">BTC всегда доступен в quick create и использует сеть Bitcoin [btc].</span>
         </label>
       </div>
+      <div class="form-grid">
+        <label class="field">
+          <span class="field-label">BTC Network (fixed)</span>
+          <input type="text" class="input-locked" value="Bitcoin (BTC) [btc]" readonly>
+        </label>
+      </div>
       <label class="field">
         <span class="field-label">Description</span>
         <textarea name="description" placeholder="Детали, которые попадут в инвойс"></textarea>
@@ -183,6 +189,13 @@
                   </option>
                 {% endfor %}
               </select>
+            </label>
+          </div>
+
+          <div class="form-grid">
+            <label class="field">
+              <span class="field-label">BTC Network (fixed)</span>
+              <input type="text" class="input-locked" value="Bitcoin (BTC) [btc]" readonly>
             </label>
           </div>
 

@@ -428,6 +428,7 @@
 
       const buildSeries = (rangeKey) => {
         const cfg = ranges[rangeKey] || ranges["60m"];
+        cfg.key = rangeKey;
         const bucketMs = cfg.bucketMinutes * 60000;
         const endStart = alignToBucket(now, cfg.bucketMinutes);
         const coverageStart = new Date(endStart.getTime() - ((cfg.bucketCount - 1) * bucketMs));
@@ -450,6 +451,80 @@
 
         const labels = bucketStarts.map((bucketStart) => formatXAxisLabel(bucketStart, cfg.bucketMinutes));
         return { counts, labels, bucketStarts, bucketMs, cfg };
+      };
+
+      const smoothingWindowByRange = (rangeKey) => {
+        if (rangeKey === "24h") {
+          return 2;
+        }
+        if (rangeKey === "30d") {
+          return 1;
+        }
+        if (rangeKey === "7d") {
+          return 1;
+        }
+        return 0;
+      };
+
+      const smoothCounts = (values, windowSize) => {
+        if (!windowSize || windowSize <= 0) {
+          return values.slice();
+        }
+        const size = values.length;
+        const output = new Array(size).fill(0);
+        for (let i = 0; i < size; i += 1) {
+          let weighted = 0;
+          let weightSum = 0;
+          for (let offset = -windowSize; offset <= windowSize; offset += 1) {
+            const idx = i + offset;
+            if (idx < 0 || idx >= size) {
+              continue;
+            }
+            const weight = (windowSize + 1) - Math.abs(offset);
+            weighted += values[idx] * weight;
+            weightSum += weight;
+          }
+          output[i] = weightSum > 0 ? (weighted / weightSum) : values[i];
+        }
+        return output;
+      };
+
+      const buildYAxis = (maxValue) => {
+        const safeMax = Math.max(1, maxValue);
+        const targetLines = 5;
+        const roughStep = safeMax / (targetLines - 1);
+        const magnitude = Math.pow(10, Math.floor(Math.log10(Math.max(roughStep, 0.0001))));
+        const candidates = [1, 2, 2.5, 5, 10];
+        let step = candidates[candidates.length - 1] * magnitude;
+        for (const candidate of candidates) {
+          const maybe = candidate * magnitude;
+          if (maybe >= roughStep) {
+            step = maybe;
+            break;
+          }
+        }
+        const top = Math.ceil(safeMax / step) * step;
+        const values = [];
+        for (let value = top; value >= 0; value -= step) {
+          values.push(Number(value.toFixed(8)));
+          if (values.length > 8) {
+            break;
+          }
+        }
+        if (!values.includes(0)) {
+          values.push(0);
+        }
+        return { top, step, values };
+      };
+
+      const formatAxisValue = (value) => {
+        if (Number.isInteger(value)) {
+          return String(value);
+        }
+        if (value < 1) {
+          return value.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+        }
+        return value.toFixed(1).replace(/\.0$/, "");
       };
 
       const smoothLinePath = (points) => {
@@ -502,40 +577,46 @@
         return d;
       };
 
-      const resolveFocusIndex = (idx) => {
+      const resolveFocusIndex = (idx, pointerX = null) => {
         if (!chartState || !chartState.counts.length) {
           return idx;
         }
         const counts = chartState.counts;
         const clamped = Math.max(0, Math.min(idx, counts.length - 1));
+        if (lockedIndex !== null) {
+          return Math.max(0, Math.min(lockedIndex, counts.length - 1));
+        }
         if (counts[clamped] > 0) {
           return clamped;
         }
-        const radius = counts.length >= 1200 ? 24 : counts.length >= 300 ? 12 : 6;
-        for (let delta = 1; delta <= radius; delta += 1) {
-          const left = clamped - delta;
-          const right = clamped + delta;
-          const leftValue = left >= 0 ? counts[left] : -1;
-          const rightValue = right < counts.length ? counts[right] : -1;
-          if (leftValue > 0 && rightValue > 0) {
-            return leftValue >= rightValue ? left : right;
+        if (!chartState.eventIndexes.length || pointerX === null) {
+          return clamped;
+        }
+        let nearestIndex = clamped;
+        let nearestDistance = Number.POSITIVE_INFINITY;
+        for (const eventIndex of chartState.eventIndexes) {
+          const eventPoint = chartState.points[eventIndex];
+          if (!eventPoint) {
+            continue;
           }
-          if (leftValue > 0) {
-            return left;
+          const distance = Math.abs(eventPoint.x - pointerX);
+          if (distance < nearestDistance) {
+            nearestDistance = distance;
+            nearestIndex = eventIndex;
           }
-          if (rightValue > 0) {
-            return right;
-          }
+        }
+        if (nearestDistance <= chartState.magnetPx) {
+          return nearestIndex;
         }
         return clamped;
       };
 
-      const showHover = (idx, keepVisible) => {
+      const showHover = (idx, keepVisible, pointerX = null) => {
         if (!chartState || !chartState.points.length) {
           return;
         }
         const clampedIndex = Math.max(0, Math.min(idx, chartState.points.length - 1));
-        const focusIndex = resolveFocusIndex(clampedIndex);
+        const focusIndex = resolveFocusIndex(clampedIndex, pointerX);
         const point = chartState.points[focusIndex];
         const count = chartState.counts[focusIndex] || 0;
         const start = chartState.bucketStarts[focusIndex];
@@ -600,6 +681,8 @@
       const renderSeries = (series) => {
         const counts = series.counts;
         const labels = series.labels;
+        const smoothingWindow = smoothingWindowByRange(series.cfg.key || "60m");
+        const plotCounts = smoothCounts(counts, smoothingWindow);
         const peak = Math.max(...counts, 0);
         const total = counts.reduce((acc, value) => acc + value, 0);
         const currentBucket = counts[counts.length - 1] || 0;
@@ -627,9 +710,10 @@
         const usableWidth = width - left - right;
         const usableHeight = height - top - bottom;
         const baseY = top + usableHeight;
-        const max = Math.max(peak, 1);
+        const yAxis = buildYAxis(Math.max(...plotCounts, 0));
+        const max = Math.max(yAxis.top, 1);
 
-        const points = counts.map((count, idx) => {
+        const points = plotCounts.map((count, idx) => {
           const x = left + (idx * usableWidth) / Math.max(1, counts.length - 1);
           const y = top + usableHeight - ((count / max) * usableHeight);
           return { x, y };
@@ -643,9 +727,8 @@
         if (gridNode) {
           gridNode.innerHTML = "";
           const xmlns = "http://www.w3.org/2000/svg";
-          for (let i = 0; i <= 4; i += 1) {
-            const ratio = i / 4;
-            const y = top + (usableHeight * ratio);
+          for (const axisValue of yAxis.values) {
+            const y = top + usableHeight - ((axisValue / max) * usableHeight);
             const line = document.createElementNS(xmlns, "line");
             line.setAttribute("x1", String(left));
             line.setAttribute("x2", String(left + usableWidth));
@@ -655,10 +738,9 @@
 
             if (yLabelsNode) {
               const label = document.createElementNS(xmlns, "text");
-              const value = Math.round(max - (max * ratio));
               label.setAttribute("x", String(left - 8));
               label.setAttribute("y", String(y + 4));
-              label.textContent = String(value);
+              label.textContent = formatAxisValue(axisValue);
               yLabelsNode.appendChild(label);
             }
           }
@@ -758,11 +840,17 @@
 
         chartState = {
           counts,
+          plotCounts,
           labels,
           bucketStarts: series.bucketStarts,
           bucketMs: series.bucketMs,
           cfg: series.cfg,
           points,
+          eventIndexes: counts
+            .map((value, idx) => ({ value, idx }))
+            .filter((item) => item.value > 0)
+            .map((item) => item.idx),
+          magnetPx: 14,
           total,
           top,
           baseY,
@@ -772,17 +860,20 @@
 
       };
 
-      const indexFromPointer = (event) => {
+      const pointerFromEvent = (event) => {
         if (!chartState || !chartState.points.length) {
-          return 0;
+          return { index: 0, x: 0 };
         }
         const rect = chartNode.getBoundingClientRect();
         if (!rect.width) {
-          return chartState.points.length - 1;
+          const lastIndex = chartState.points.length - 1;
+          return { index: lastIndex, x: chartState.points[lastIndex]?.x || 0 };
         }
-        const x = Math.max(0, Math.min(event.clientX - rect.left, rect.width));
-        const ratio = x / rect.width;
-        return Math.round(ratio * (chartState.points.length - 1));
+        const px = Math.max(0, Math.min(event.clientX - rect.left, rect.width));
+        const ratio = px / rect.width;
+        const index = Math.round(ratio * (chartState.points.length - 1));
+        const x = ratio * (chartState.width || 420);
+        return { index, x };
       };
 
       const applyRange = (rangeKey) => {
@@ -805,7 +896,8 @@
           showHover(lockedIndex, true);
           return;
         }
-        showHover(indexFromPointer(event), false);
+        const pointer = pointerFromEvent(event);
+        showHover(pointer.index, false, pointer.x);
       });
       chartNode.addEventListener("mouseleave", function () {
         if (chartState && chartState.points.length && lockedIndex !== null) {
@@ -817,7 +909,8 @@
         }
       });
       chartNode.addEventListener("click", function (event) {
-        const idx = resolveFocusIndex(indexFromPointer(event));
+        const pointer = pointerFromEvent(event);
+        const idx = resolveFocusIndex(pointer.index, pointer.x);
         lockedIndex = lockedIndex === idx ? null : idx;
         showHover(idx, true);
       });
@@ -830,7 +923,8 @@
           showHover(lockedIndex, true);
           return;
         }
-        showHover(indexFromPointer(touch), false);
+        const pointer = pointerFromEvent(touch);
+        showHover(pointer.index, false, pointer.x);
       }, { passive: true });
       window.addEventListener("keydown", function (event) {
         if (event.key === "Escape") {
