@@ -278,11 +278,16 @@ def _default_usdt_network() -> str:
     return USDT_NETWORK_CHOICES[0]
 
 
-def _resolve_template_network(currency: str, usdt_network: str) -> str:
+def _resolve_template_network(currency: str, usdt_network: str, requested_network: str = "") -> str:
     normalized_currency = currency.strip().upper()
+    normalized_network = requested_network.strip().lower()
     if normalized_currency == "BTC":
+        if normalized_network and normalized_network != "btc":
+            raise ValueError("BTC supports only btc network")
         return "btc"
     if normalized_currency == "USDT":
+        if normalized_network and normalized_network != usdt_network:
+            raise ValueError("USDT quick template network is fixed in template settings")
         return usdt_network
     raise ValueError("Unsupported currency")
 
@@ -1114,6 +1119,7 @@ def quick_create_payment(
     request: Request,
     template_id: int = Form(...),
     currency: str = Form("USDT"),
+    network: str = Form(""),
     csrf_token: str = Form(""),
     db: Session = Depends(get_db),
 ):
@@ -1140,7 +1146,7 @@ def quick_create_payment(
         )
 
     try:
-        network_code = _resolve_template_network(currency, item.usdt_network)
+        network_code = _resolve_template_network(currency, item.usdt_network, network)
     except ValueError as exc:
         return RedirectResponse(
             f"/admin/payments?error={quote_plus(str(exc))}",
@@ -1173,6 +1179,7 @@ def quick_create_payment(
                 "quick_template_id": item.id,
                 "quick_template_title": item.title,
                 "quick_template_currency": currency.strip().upper() or "USDT",
+                "quick_template_network": network_code,
                 "price_model": "usd_fixed",
                 "quick_template_amount_usd": _format_usd_value(item.usd_amount),
             },

@@ -639,7 +639,7 @@ a:hover {
   padding: 0.4rem 0.58rem;
   display: grid;
   gap: 0.1rem;
-  min-width: 88px;
+  min-width: 120px;
 }
 
 .line-summary-label {
@@ -659,13 +659,15 @@ a:hover {
   position: relative;
   border: 1px solid var(--line-strong);
   border-radius: 12px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.64), rgba(237, 243, 255, 0.44));
-  padding: 0.5rem 0.56rem 0.44rem;
+  background:
+    radial-gradient(circle at 90% 12%, rgba(94, 125, 255, 0.12), transparent 22%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.68), rgba(237, 243, 255, 0.48));
+  padding: 0.5rem 0.56rem 0.55rem;
 }
 
 .line-tooltip {
   position: absolute;
-  z-index: 3;
+  z-index: 6;
   border: 1px solid rgba(31, 42, 71, 0.16);
   border-radius: 8px;
   background: rgba(28, 37, 61, 0.95);
@@ -681,7 +683,7 @@ a:hover {
 
 .line-chart {
   width: 100%;
-  height: 170px;
+  height: 220px;
   display: block;
 }
 
@@ -690,29 +692,60 @@ a:hover {
   stroke-width: 1;
 }
 
+.line-y-labels text {
+  fill: #8090af;
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-anchor: end;
+}
+
 .line-area {
-  fill: rgba(47, 75, 255, 0.1);
+  fill: rgba(47, 75, 255, 0.14);
 }
 
 .line-path {
   fill: none;
   stroke: #2f4bff;
-  stroke-width: 3;
+  stroke-width: 2.6;
   stroke-linejoin: round;
   stroke-linecap: round;
+}
+
+.line-cursor {
+  stroke: rgba(47, 75, 255, 0.5);
+  stroke-width: 1.1;
+  stroke-dasharray: 3 3;
+}
+
+.line-focus {
+  fill: #ffffff;
+  stroke: #2f4bff;
+  stroke-width: 2;
 }
 
 .line-dots circle {
   fill: #ffffff;
   stroke: #2f4bff;
-  stroke-width: 2;
+  stroke-width: 1.8;
   cursor: pointer;
   transition: stroke-width 0.15s ease, fill 0.15s ease;
 }
 
+.line-dots circle.active,
 .line-dots circle:hover {
-  fill: #dce8ff;
+  fill: #cfe0ff;
   stroke-width: 2.8;
+}
+
+.line-detail {
+  margin-top: 0.36rem;
+  color: #51638a;
+  font-size: 0.76rem;
+  line-height: 1.35;
+  border: 1px dashed rgba(128, 148, 191, 0.42);
+  border-radius: 8px;
+  background: rgba(247, 250, 255, 0.82);
+  padding: 0.28rem 0.42rem;
 }
 
 .line-labels {
@@ -1695,6 +1728,10 @@ textarea {
   min-height: 78px;
 }
 
+.quick-network-note {
+  margin: 0;
+}
+
 .quick-template-meta {
   display: flex;
   align-items: center;
@@ -1925,6 +1962,14 @@ textarea {
     flex-wrap: wrap;
   }
 
+  .line-summary-item {
+    min-width: calc(50% - 0.35rem);
+  }
+
+  .line-chart {
+    height: 190px;
+  }
+
   .range-switch {
     width: 100%;
     justify-content: stretch;
@@ -2054,6 +2099,10 @@ textarea {
 @media (max-width: 430px) {
   .sidebar-nav {
     grid-template-columns: 1fr;
+  }
+
+  .line-summary-item {
+    min-width: 100%;
   }
 
   td {

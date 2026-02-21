@@ -90,6 +90,7 @@
             {% if template.is_active %}active{% else %}inactive{% endif %}
           </span>
           <span class="subline">USDT network: <span class="mono">{{ template.usdt_network }}</span></span>
+          <span class="subline">BTC network: <span class="mono">btc</span></span>
           <span class="subline">Updated: {{ template.updated_at|dt }}</span>
         </div>
 
@@ -108,10 +109,21 @@
               </select>
             </label>
             <label class="field">
-              <span class="field-label">Network (auto)</span>
-              <input type="text" data-network-preview value="{{ usdt_label }}" readonly>
+              <span class="field-label">Network</span>
+              <select name="network" data-network-select {% if not template.is_active %}disabled{% endif %}>
+                <option value="{{ template.usdt_network }}" data-currency="USDT">
+                  {{ usdt_label }} [{{ template.usdt_network }}]
+                </option>
+                <option value="btc" data-currency="BTC">
+                  Bitcoin (BTC) [btc]
+                </option>
+              </select>
             </label>
           </div>
+
+          <p class="subline quick-network-note" data-network-note>
+            Для BTC используется native сеть Bitcoin, для USDT - сеть шаблона.
+          </p>
 
           <div class="form-actions">
             <button type="submit" class="btn btn-primary" {% if not template.is_active %}disabled{% endif %}>Create Invoice</button>
@@ -221,18 +233,45 @@
         const currencySelect = form.querySelector("[data-currency-select]");
         const usdtNetwork = form.querySelector("[data-usdt-network]");
         const usdtLabel = form.querySelector("[data-usdt-label]");
-        const networkPreview = form.querySelector("[data-network-preview]");
-        if (!currencySelect || !networkPreview) {
+        const networkSelect = form.querySelector("[data-network-select]");
+        const networkNote = form.querySelector("[data-network-note]");
+        if (!currencySelect || !networkSelect) {
           return;
         }
+
         const selectedCurrency = (currencySelect.value || "USDT").toUpperCase();
+        const usdtNetworkCode = usdtNetwork ? (usdtNetwork.value || "").trim() : "";
+        const usdtNetworkLabel = usdtLabel ? (usdtLabel.value || "USDT") : "USDT";
+
+        const options = Array.from(networkSelect.options);
+        let firstVisible = null;
+        for (const option of options) {
+          const optionCurrency = (option.dataset.currency || "USDT").toUpperCase();
+          const visible = optionCurrency === selectedCurrency;
+          option.hidden = !visible;
+          option.disabled = !visible;
+          if (visible && !firstVisible) {
+            firstVisible = option;
+          }
+        }
+
+        const selectedOption = options.find((item) => item.value === networkSelect.value && !item.disabled);
+        if (!selectedOption && firstVisible) {
+          networkSelect.value = firstVisible.value;
+        }
+
         if (selectedCurrency === "BTC") {
-          networkPreview.value = "Bitcoin (BTC)";
+          if (networkNote) {
+            networkNote.textContent = "Вы выбрали BTC. Сеть фиксирована: Bitcoin [btc].";
+          }
           return;
         }
-        const label = usdtLabel ? (usdtLabel.value || "USDT") : "USDT";
-        const networkCode = usdtNetwork ? (usdtNetwork.value || "") : "";
-        networkPreview.value = label + (networkCode ? " [" + networkCode + "]" : "");
+
+        if (networkNote) {
+          networkNote.textContent = "Вы выбрали USDT. Используется сеть шаблона: " +
+            usdtNetworkLabel +
+            (usdtNetworkCode ? " [" + usdtNetworkCode + "]" : ".");
+        }
       };
 
       for (const form of forms) {

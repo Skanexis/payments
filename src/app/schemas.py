@@ -92,3 +92,4 @@ class QuickTemplateResponse(BaseModel):
 
 class QuickCreateFromTemplateRequest(BaseModel):
     currency: Literal["USDT", "BTC"] = "USDT"
+    network: Literal["tron_usdt", "bsc_usdt", "eth_usdt", "btc"] | None = None

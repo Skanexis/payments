@@ -91,11 +91,16 @@ def _template_payload(
     )
 
 
-def _network_by_currency(currency: str, template: QuickPaymentTemplate) -> str:
+def _network_by_currency(currency: str, template: QuickPaymentTemplate, requested_network: str | None = None) -> str:
     normalized = currency.strip().upper()
+    network = (requested_network or "").strip().lower()
     if normalized == "BTC":
+        if network and network != "btc":
+            raise HTTPException(status_code=400, detail="BTC supports only btc network")
         return "btc"
     if normalized == "USDT":
+        if network and network != template.usdt_network:
+            raise HTTPException(status_code=400, detail="USDT template uses fixed template network")
         return template.usdt_network
     raise HTTPException(status_code=400, detail="Unsupported currency")
 
@@ -254,7 +259,7 @@ def quick_create_from_template_api(
     if not item.is_active:
         raise HTTPException(status_code=400, detail="Template is inactive")
 
-    network = _network_by_currency(payload.currency, item)
+    network = _network_by_currency(payload.currency, item, payload.network)
     wallet = payment_service.get_network_wallet(network)
     if not wallet:
         raise HTTPException(status_code=400, detail=f"Wallet is not configured for network: {network}")

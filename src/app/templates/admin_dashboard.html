@@ -95,9 +95,9 @@
           <p class="panel-subtitle">Интерактивная динамика создания инвойсов с переключением окна времени.</p>
         </div>
         <div class="range-switch" role="tablist" aria-label="Activity time range">
-          <button type="button" class="range-btn" data-range="60m">60m</button>
+          <button type="button" class="range-btn active" data-range="60m">60m</button>
           <button type="button" class="range-btn" data-range="24h">24h</button>
-          <button type="button" class="range-btn active" data-range="7d">7d</button>
+          <button type="button" class="range-btn" data-range="7d">7d</button>
           <button type="button" class="range-btn" data-range="30d">30d</button>
         </div>
       </div>
@@ -115,16 +115,28 @@
           <span class="line-summary-label">Пик интервала</span>
           <span id="peak-count" class="line-summary-value">0</span>
         </div>
+        <div class="line-summary-item">
+          <span class="line-summary-label">Среднее/интервал</span>
+          <span id="avg-count" class="line-summary-value">0</span>
+        </div>
+        <div class="line-summary-item">
+          <span class="line-summary-label">Выбранный интервал</span>
+          <span id="slot-count" class="line-summary-value">-</span>
+        </div>
       </div>
 
       <div class="line-chart-shell">
-        <svg id="activity-chart" class="line-chart" viewBox="0 0 360 170" data-now="{{ now.isoformat() if now else '' }}" data-created="{% for payment in chart_payments %}{{ payment.created_at.isoformat() }}{% if not loop.last %},{% endif %}{% endfor %}">
+        <svg id="activity-chart" class="line-chart" viewBox="0 0 420 220" data-now="{{ now.isoformat() if now else '' }}" data-created="{% for payment in chart_payments %}{{ payment.created_at.isoformat() }}{% if not loop.last %},{% endif %}{% endfor %}">
           <g class="line-grid"></g>
-          <polygon class="line-area" points=""></polygon>
-          <polyline class="line-path" points=""></polyline>
+          <g class="line-y-labels"></g>
+          <path class="line-area" d=""></path>
+          <path class="line-path" d=""></path>
+          <line class="line-cursor" x1="0" y1="0" x2="0" y2="0" hidden></line>
+          <circle class="line-focus" cx="0" cy="0" r="5" hidden></circle>
           <g class="line-dots"></g>
         </svg>
         <div id="activity-tooltip" class="line-tooltip" hidden></div>
+        <div id="activity-detail" class="line-detail">Наведите на график, чтобы увидеть точный интервал и количество запросов.</div>
         <div id="activity-labels" class="line-labels"></div>
       </div>
     </article>
@@ -342,8 +354,20 @@
       if (!chartNode) {
         return;
       }
+
       const rangeButtons = Array.from(document.querySelectorAll("[data-range]"));
       const tooltipNode = document.getElementById("activity-tooltip");
+      const labelsNode = document.getElementById("activity-labels");
+      const detailNode = document.getElementById("activity-detail");
+      const cursorNode = chartNode.querySelector(".line-cursor");
+      const focusNode = chartNode.querySelector(".line-focus");
+      const dotsNode = chartNode.querySelector(".line-dots");
+      const todayNode = document.getElementById("today-count");
+      const weekNode = document.getElementById("week-count");
+      const peakNode = document.getElementById("peak-count");
+      const avgNode = document.getElementById("avg-count");
+      const slotNode = document.getElementById("slot-count");
+
       const raw = chartNode.dataset.created || "";
       const nowRaw = chartNode.dataset.now || "";
       const createdDates = raw
@@ -352,66 +376,65 @@
         .filter(Boolean)
         .map((item) => {
           const hasTimezone = item.endsWith("Z") || item.includes("+");
-          return new Date(hasTimezone ? item : item + "Z");
+          return new Date(hasTimezone ? item : (item + "Z"));
         })
         .filter((date) => !Number.isNaN(date.getTime()));
 
       const now = nowRaw ? new Date(nowRaw) : new Date();
       const ranges = {
-        "60m": { bucketMinutes: 5, bucketCount: 12 },
-        "24h": { bucketMinutes: 60, bucketCount: 24 },
-        "7d": { bucketMinutes: 1440, bucketCount: 7 },
-        "30d": { bucketMinutes: 1440, bucketCount: 30 }
+        "60m": { bucketMinutes: 1, bucketCount: 60 },
+        "24h": { bucketMinutes: 1, bucketCount: 1440 },
+        "7d": { bucketMinutes: 60, bucketCount: 168 },
+        "30d": { bucketMinutes: 180, bucketCount: 240 },
       };
-      let activeRange = "7d";
 
-      const fmtHour = (d) => d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-      const fmtDay = (d) => d.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit" });
-      const startOfHourUtc = (d) => new Date(Date.UTC(
-        d.getUTCFullYear(),
-        d.getUTCMonth(),
-        d.getUTCDate(),
-        d.getUTCHours(),
-        0,
-        0,
-        0
-      ));
-      const startOfDayUtc = (d) => new Date(Date.UTC(
-        d.getUTCFullYear(),
-        d.getUTCMonth(),
-        d.getUTCDate(),
-        0,
-        0,
-        0,
-        0
-      ));
-      const alignToBucketUtc = (d, bucketMinutes) => {
-        const mins = d.getUTCMinutes();
-        const aligned = Math.floor(mins / bucketMinutes) * bucketMinutes;
-        return new Date(Date.UTC(
-          d.getUTCFullYear(),
-          d.getUTCMonth(),
-          d.getUTCDate(),
-          d.getUTCHours(),
-          aligned,
-          0,
-          0
-        ));
+      let activeRange = "60m";
+      let chartState = null;
+      let resizeTimer = null;
+
+      const formatXAxisLabel = (date, bucketMinutes) => {
+        if (bucketMinutes < 60) {
+          return date.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
+        }
+        if (bucketMinutes < 1440) {
+          return date.toLocaleString("en-GB", {
+            day: "2-digit",
+            month: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            timeZone: "UTC",
+          });
+        }
+        return date.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", timeZone: "UTC" });
+      };
+
+      const formatDetailLabel = (start, end, bucketMinutes) => {
+        const startTime = start.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
+        const endTime = end.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
+        if (bucketMinutes < 1440) {
+          const datePart = start.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", timeZone: "UTC" });
+          return datePart + " " + startTime + " - " + endTime + " UTC";
+        }
+        const startDay = start.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", timeZone: "UTC" });
+        const endDay = end.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", timeZone: "UTC" });
+        return startDay + " - " + endDay + " UTC";
+      };
+
+      const alignToBucket = (date, bucketMinutes) => {
+        const bucketMs = bucketMinutes * 60000;
+        return new Date(Math.floor(date.getTime() / bucketMs) * bucketMs);
       };
 
       const buildSeries = (rangeKey) => {
-        const cfg = ranges[rangeKey] || ranges["7d"];
+        const cfg = ranges[rangeKey] || ranges["60m"];
         const bucketMs = cfg.bucketMinutes * 60000;
-        const endStart = cfg.bucketMinutes < 1440 ? alignToBucketUtc(now, cfg.bucketMinutes) : startOfDayUtc(now);
+        const endStart = alignToBucket(now, cfg.bucketMinutes);
         const coverageStart = new Date(endStart.getTime() - ((cfg.bucketCount - 1) * bucketMs));
         const coverageEnd = new Date(endStart.getTime() + bucketMs);
-        const labels = [];
-        const counts = Array.from({ length: cfg.bucketCount }, () => 0);
-
-        for (let i = 0; i < cfg.bucketCount; i += 1) {
-          const bucketStart = new Date(coverageStart.getTime() + (i * bucketMs));
-          labels.push(cfg.bucketMinutes < 1440 ? fmtHour(bucketStart) : fmtDay(bucketStart));
-        }
+        const bucketStarts = Array.from({ length: cfg.bucketCount }, function (_, idx) {
+          return new Date(coverageStart.getTime() + (idx * bucketMs));
+        });
+        const counts = Array.from({ length: cfg.bucketCount }, function () { return 0; });
 
         for (const ts of createdDates) {
           const time = ts.getTime();
@@ -424,128 +447,237 @@
           }
         }
 
-        return { counts, labels };
+        const labels = bucketStarts.map((bucketStart) => formatXAxisLabel(bucketStart, cfg.bucketMinutes));
+        return { counts, labels, bucketStarts, bucketMs, cfg };
+      };
+
+      const stepLinePath = (points) => {
+        if (!points.length) {
+          return "";
+        }
+        let d = "M " + points[0].x + " " + points[0].y;
+        for (let i = 1; i < points.length; i += 1) {
+          const prev = points[i - 1];
+          const current = points[i];
+          d += " L " + current.x + " " + prev.y + " L " + current.x + " " + current.y;
+        }
+        return d;
+      };
+
+      const stepAreaPath = (points, baseY) => {
+        if (!points.length) {
+          return "";
+        }
+        let d = "M " + points[0].x + " " + baseY + " L " + points[0].x + " " + points[0].y;
+        for (let i = 1; i < points.length; i += 1) {
+          const prev = points[i - 1];
+          const current = points[i];
+          d += " L " + current.x + " " + prev.y + " L " + current.x + " " + current.y;
+        }
+        const last = points[points.length - 1];
+        d += " L " + last.x + " " + baseY + " Z";
+        return d;
+      };
+
+      const showHover = (idx, keepVisible) => {
+        if (!chartState || !chartState.points.length) {
+          return;
+        }
+        const clampedIndex = Math.max(0, Math.min(idx, chartState.points.length - 1));
+        const point = chartState.points[clampedIndex];
+        const count = chartState.counts[clampedIndex] || 0;
+        const start = chartState.bucketStarts[clampedIndex];
+        const end = new Date(start.getTime() + chartState.bucketMs);
+        const detailLabel = formatDetailLabel(start, end, chartState.cfg.bucketMinutes);
+        const total = chartState.total || 1;
+        const share = ((count / total) * 100).toFixed(1);
+
+        if (slotNode) {
+          slotNode.textContent = String(count);
+        }
+        if (detailNode) {
+          detailNode.textContent = detailLabel + " | requests: " + count + " | share: " + share + "%";
+        }
+        if (cursorNode) {
+          cursorNode.setAttribute("x1", String(point.x));
+          cursorNode.setAttribute("x2", String(point.x));
+          cursorNode.setAttribute("y1", String(chartState.top));
+          cursorNode.setAttribute("y2", String(chartState.baseY));
+          cursorNode.hidden = false;
+        }
+        if (focusNode) {
+          focusNode.setAttribute("cx", String(point.x));
+          focusNode.setAttribute("cy", String(point.y));
+          focusNode.hidden = false;
+        }
+        if (tooltipNode) {
+          const chartRect = chartNode.getBoundingClientRect();
+          const scaleX = chartRect.width / Math.max(1, chartState.width || 420);
+          const scaleY = chartRect.height / Math.max(1, chartState.height || 220);
+          tooltipNode.textContent = chartState.labels[clampedIndex] + " | " + count;
+          tooltipNode.style.left = (point.x * scaleX) + "px";
+          tooltipNode.style.top = ((point.y * scaleY) - 8) + "px";
+          tooltipNode.hidden = false;
+        }
+        if (!keepVisible && dotsNode) {
+          const allDots = Array.from(dotsNode.querySelectorAll("circle"));
+          allDots.forEach((dot, dotIdx) => {
+            dot.classList.toggle("active", dotIdx === clampedIndex);
+          });
+        }
+      };
+
+      const hideHover = () => {
+        if (tooltipNode) {
+          tooltipNode.hidden = true;
+        }
+        if (cursorNode) {
+          cursorNode.hidden = true;
+        }
+        if (focusNode) {
+          focusNode.hidden = true;
+        }
+        if (slotNode) {
+          slotNode.textContent = "-";
+        }
       };
 
       const renderSeries = (series) => {
         const counts = series.counts;
         const labels = series.labels;
+        const peak = Math.max(...counts, 0);
+        const total = counts.reduce((acc, value) => acc + value, 0);
         const currentBucket = counts[counts.length - 1] || 0;
-        const windowTotal = counts.reduce((acc, value) => acc + value, 0);
-        const peakBucket = Math.max(...counts, 0);
-        const todayNode = document.getElementById("today-count");
-        const weekNode = document.getElementById("week-count");
-        const peakNode = document.getElementById("peak-count");
+        const avg = counts.length ? (total / counts.length) : 0;
+
         if (todayNode) {
           todayNode.textContent = String(currentBucket);
         }
         if (weekNode) {
-          weekNode.textContent = String(windowTotal);
+          weekNode.textContent = String(total);
         }
         if (peakNode) {
-          peakNode.textContent = String(peakBucket);
+          peakNode.textContent = String(peak);
         }
-        if (tooltipNode) {
-          tooltipNode.hidden = true;
-        }
-
-        const labelsNode = document.getElementById("activity-labels");
-        if (labelsNode) {
-          const step = labels.length > 12 ? Math.ceil(labels.length / 8) : 1;
-          labelsNode.innerHTML = labels
-            .map((label, idx) => {
-              const visible = idx % step === 0 || idx === labels.length - 1;
-              return "<span class='" + (visible ? "" : "label-muted") + "'>" + (visible ? label : " ") + "</span>";
-            })
-            .join("");
+        if (avgNode) {
+          avgNode.textContent = avg.toFixed(2);
         }
 
-        const max = Math.max(...counts, 1);
-        const width = 360;
-        const height = 170;
-        const left = 14;
-        const right = 14;
-        const top = 12;
-        const bottom = 28;
+        const width = 420;
+        const height = 220;
+        const left = 34;
+        const right = 10;
+        const top = 14;
+        const bottom = 34;
         const usableWidth = width - left - right;
         const usableHeight = height - top - bottom;
+        const baseY = top + usableHeight;
+        const max = Math.max(peak, 1);
 
         const points = counts.map((count, idx) => {
           const x = left + (idx * usableWidth) / Math.max(1, counts.length - 1);
-          const y = top + usableHeight - (count / max) * usableHeight;
+          const y = top + usableHeight - ((count / max) * usableHeight);
           return { x, y };
         });
 
         const gridNode = chartNode.querySelector(".line-grid");
+        const yLabelsNode = chartNode.querySelector(".line-y-labels");
+        if (yLabelsNode) {
+          yLabelsNode.innerHTML = "";
+        }
         if (gridNode) {
           gridNode.innerHTML = "";
           const xmlns = "http://www.w3.org/2000/svg";
-          [0, 0.25, 0.5, 0.75, 1].forEach((level) => {
-            const y = top + usableHeight - usableHeight * level;
+          for (let i = 0; i <= 4; i += 1) {
+            const ratio = i / 4;
+            const y = top + (usableHeight * ratio);
             const line = document.createElementNS(xmlns, "line");
             line.setAttribute("x1", String(left));
             line.setAttribute("x2", String(left + usableWidth));
             line.setAttribute("y1", String(y));
             line.setAttribute("y2", String(y));
             gridNode.appendChild(line);
-          });
-        }
 
-        const areaNode = chartNode.querySelector(".line-area");
-        if (areaNode) {
-          const areaPoints = [
-            left + "," + (top + usableHeight),
-            ...points.map((point) => point.x + "," + point.y),
-            left + usableWidth + "," + (top + usableHeight),
-          ];
-          areaNode.setAttribute("points", areaPoints.join(" "));
+            if (yLabelsNode) {
+              const label = document.createElementNS(xmlns, "text");
+              const value = Math.round(max - (max * ratio));
+              label.setAttribute("x", String(left - 8));
+              label.setAttribute("y", String(y + 4));
+              label.textContent = String(value);
+              yLabelsNode.appendChild(label);
+            }
+          }
         }
 
         const pathNode = chartNode.querySelector(".line-path");
         if (pathNode) {
-          pathNode.setAttribute("points", points.map((point) => point.x + "," + point.y).join(" "));
+          pathNode.setAttribute("d", stepLinePath(points));
         }
 
-        const dotsNode = chartNode.querySelector(".line-dots");
+        const areaNode = chartNode.querySelector(".line-area");
+        if (areaNode) {
+          areaNode.setAttribute("d", stepAreaPath(points, baseY));
+        }
+
         if (dotsNode) {
           dotsNode.innerHTML = "";
-          const xmlns = "http://www.w3.org/2000/svg";
-          points.forEach((point, idx) => {
-            const dot = document.createElementNS(xmlns, "circle");
-            dot.setAttribute("cx", String(point.x));
-            dot.setAttribute("cy", String(point.y));
-            dot.setAttribute("r", "3.5");
-            dot.dataset.count = String(counts[idx]);
-            dot.dataset.label = labels[idx];
-            dotsNode.appendChild(dot);
-          });
+          if (points.length <= 120) {
+            const xmlns = "http://www.w3.org/2000/svg";
+            points.forEach((point) => {
+              const dot = document.createElementNS(xmlns, "circle");
+              dot.setAttribute("cx", String(point.x));
+              dot.setAttribute("cy", String(point.y));
+              dot.setAttribute("r", "3");
+              dotsNode.appendChild(dot);
+            });
+          }
         }
 
-        const dots = Array.from(chartNode.querySelectorAll(".line-dots circle"));
-        dots.forEach((dot) => {
-          dot.addEventListener("mouseenter", function (event) {
-            if (!tooltipNode) {
-              return;
-            }
-            const label = dot.dataset.label || "";
-            const count = dot.dataset.count || "0";
-            tooltipNode.textContent = label + " - " + count;
-            tooltipNode.hidden = false;
-            const chartRect = chartNode.getBoundingClientRect();
-            const targetRect = event.target.getBoundingClientRect();
-            tooltipNode.style.left = (targetRect.left - chartRect.left + 8) + "px";
-            tooltipNode.style.top = (targetRect.top - chartRect.top - 8) + "px";
-          });
-          dot.addEventListener("mouseleave", function () {
-            if (tooltipNode) {
-              tooltipNode.hidden = true;
-            }
-          });
-        });
+        if (labelsNode) {
+          const slots = window.innerWidth < 760 ? 5 : 10;
+          const ticks = [];
+          for (let i = 0; i <= slots; i += 1) {
+            const idx = Math.min(labels.length - 1, Math.round((i / slots) * (labels.length - 1)));
+            ticks.push("<span>" + labels[idx] + "</span>");
+          }
+          labelsNode.innerHTML = ticks.join("");
+        }
+
+        chartState = {
+          counts,
+          labels,
+          bucketStarts: series.bucketStarts,
+          bucketMs: series.bucketMs,
+          cfg: series.cfg,
+          points,
+          total,
+          top,
+          baseY,
+          width,
+          height,
+        };
+
+        hideHover();
+        if (points.length > 0) {
+          showHover(points.length - 1, true);
+        }
+      };
+
+      const indexFromPointer = (event) => {
+        if (!chartState || !chartState.points.length) {
+          return 0;
+        }
+        const rect = chartNode.getBoundingClientRect();
+        if (!rect.width) {
+          return chartState.points.length - 1;
+        }
+        const x = Math.max(0, Math.min(event.clientX - rect.left, rect.width));
+        const ratio = x / rect.width;
+        return Math.round(ratio * (chartState.points.length - 1));
       };
 
       const applyRange = (rangeKey) => {
-        activeRange = ranges[rangeKey] ? rangeKey : "7d";
+        activeRange = ranges[rangeKey] ? rangeKey : "60m";
         for (const button of rangeButtons) {
           button.classList.toggle("active", button.dataset.range === activeRange);
         }
@@ -554,9 +686,38 @@
 
       for (const button of rangeButtons) {
         button.addEventListener("click", function () {
-          applyRange(button.dataset.range || "7d");
+          applyRange(button.dataset.range || "60m");
         });
       }
+
+      chartNode.addEventListener("mousemove", function (event) {
+        showHover(indexFromPointer(event), false);
+      });
+      chartNode.addEventListener("mouseleave", function () {
+        if (chartState && chartState.points.length) {
+          showHover(chartState.points.length - 1, true);
+        } else {
+          hideHover();
+        }
+      });
+      chartNode.addEventListener("touchmove", function (event) {
+        const touch = event.touches && event.touches[0];
+        if (!touch) {
+          return;
+        }
+        showHover(indexFromPointer(touch), false);
+      }, { passive: true });
+
+      window.addEventListener("resize", function () {
+        if (resizeTimer) {
+          clearTimeout(resizeTimer);
+        }
+        resizeTimer = setTimeout(function () {
+          if (chartState) {
+            renderSeries(buildSeries(activeRange));
+          }
+        }, 120);
+      });
 
       applyRange(activeRange);
     })();
